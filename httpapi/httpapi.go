@@ -188,8 +188,53 @@ func calculateHash(jws string) (ret string) {
 	return buf.String()
 }
 
-func validateChain(jwss []string) error {
+type Part struct {
+	header  gojws.Header
+	payload map[string]interface{}
+	hash    string
+}
+
+type PartValidator func(invitation dao.InvitationDao, parts []Part, idx int) error
+
+func ValidateInvitation(iDao dao.InvitationDao, parts []Part, idx int) error {
+	invitationId := getStringId(iDao.Id, iDao.Secret)
+	if parts[idx].payload["invitation_id"] != invitationId {
+		log.Warning("Invitation part's invitation id doesn't match")
+		return errors.New("invalid_invitation_id")
+	}
+	return nil
+}
+
+var validators = map[string]PartValidator{
+	"invitation": ValidateInvitation,
+}
+
+func validateParents(parts []Part) bool {
 	var parent string = ""
+	for idx, part := range parts {
+		log.Info("Processing jws %d (type %s, hash %s)",
+			idx, part.header.Typ, part.hash)
+		if idx == 0 {
+			if _, present := part.payload["parent"]; present {
+				log.Warning("Entry %d has parent %s, shouldn't",
+					idx, part.payload["parent"])
+				return false
+			}
+		} else {
+			if part.payload["parent"] != parent {
+				log.Warning("Entry %d has parent %s != %s",
+					idx, part.payload["parent"], parent)
+				return false
+			}
+		}
+		parent = part.hash
+	}
+	return true
+}
+
+func validateChain(invitation dao.InvitationDao, jwss []string) error {
+	parts := make([]Part, 0)
+
 	for idx, jws := range jwss {
 		header, payload, err := parseJws(jws)
 		if err != nil {
@@ -198,23 +243,21 @@ func validateChain(jwss []string) error {
 			return errors.New("jws_parse_failed")
 		}
 		hash := calculateHash(jws)
-		log.Info("Processing jws %d (type %s, hash %s)",
-			idx, header.Typ, hash)
-		if idx == 0 {
-			if _, present := payload["parent"]; present {
-				log.Warning("Entry %d has parent %s, shouldn't",
-					idx, payload["parent"])
-				return errors.New("invalid_parent")
-			}
-		} else {
-			if payload["parent"] != parent {
-				log.Warning("Entry %d has parent %s != %s",
-					idx, payload["parent"], parent)
-				return errors.New("invalid_parent")
+		parts = append(parts, Part{header, payload, hash})
+	}
+
+	if !validateParents(parts) {
+		return errors.New("invalid_parents")
+	}
+
+	for idx, part := range parts {
+		if validator, ok := validators[part.header.Typ]; ok {
+			if err := validator(invitation, parts, idx); err != nil {
+				return err
 			}
 		}
-		parent = hash
 	}
+
 	return nil
 }
 
@@ -229,9 +272,14 @@ func cleanAndSplit(s string) (ret []string) {
 	return
 }
 
-func checkIdempotency(haystack string, needle string) bool {
-	cleanNeedle := strings.Join(cleanAndSplit(needle), "\n")
-	return strings.Contains(haystack, cleanNeedle)
+func filterNew(current string, requested string) []string {
+	ret := make([]string, 0)
+	for _, jws := range cleanAndSplit(requested) {
+		if !strings.Contains(current, jws) {
+			ret = append(ret, jws)
+		}
+	}
+	return ret
 }
 
 func UpdateInvitation(c http.ResponseWriter, r *http.Request) {
@@ -260,21 +308,21 @@ func UpdateInvitation(c http.ResponseWriter, r *http.Request) {
 		http.NotFound(c, r)
 		return
 	}
-	if checkIdempotency(iDao.Payload, string(b)) {
-		jsonify(c, struct{}{})
-		return
-	}
-	// TODO: Validate past and present jwss
-	var jwss []string
-	jwss = append(cleanAndSplit(iDao.Payload), cleanAndSplit(string(b))...)
 
-	if err = validateChain(jwss); err != nil {
+	jwss := append(cleanAndSplit(iDao.Payload),
+		filterNew(iDao.Payload, string(b))...)
+
+	last_hash := calculateHash(jwss[len(jwss)-1])
+
+	if err = validateChain(iDao, jwss); err != nil {
 		http.Error(c, err.Error(), 400)
 		return
 	}
 	iDao.Payload = strings.TrimSpace(strings.Join(jwss, "\n"))
 	state.DB.Save(&iDao)
-	jsonify(c, struct{}{})
+	jsonify(c, struct {
+		Hash string `json:"hash"`
+	}{last_hash})
 }
 
 func GetInvitation(c http.ResponseWriter, r *http.Request) {
@@ -300,20 +348,22 @@ func GetInvitation(c http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func addPem(ascii string) {
+func addPem(ascii string) (fingerprint string, err error) {
 	block, _ := pem.Decode([]byte(ascii))
 	if block == nil {
 		log.Warning("Invalid PEM")
+		err = errors.New("invalid_pem")
 		return
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		log.Warning("Failed to parse PEM: %s", err)
+		err = errors.New("invalid_pem")
 		return
 	}
 	hash := sha1.New()
 	hash.Write(cert.Raw)
-	fingerprint := hex.EncodeToString(hash.Sum(nil))
+	fingerprint = hex.EncodeToString(hash.Sum(nil))
 	var d dao.CertDao
 
 	state.DB.Where("fingerprint = ?", fingerprint).First(&d)
@@ -330,9 +380,16 @@ func addPem(ascii string) {
 		state.DB.Create(&d)
 		log.Info("Adding cert %d with fingerprint: %s", d.Id, fingerprint)
 	}
+	return
 }
 
 func AddCertificate(c http.ResponseWriter, r *http.Request) {
+	type CertRet struct {
+		Fingerprint string `json:"fingerprint"`
+		Url         string `json:"url"`
+	}
+	ret := make([]CertRet, 0)
+
 	b, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		log.Info("Invalid cert:", err)
@@ -349,11 +406,39 @@ func AddCertificate(c http.ResponseWriter, r *http.Request) {
 		if capturing {
 			lines = append(lines, line)
 			if strings.HasPrefix(line, "-----END CERTIFICATE-----") {
-				pem := strings.Join(lines, "\n")
-				addPem(pem)
+				pem := strings.TrimSpace(strings.Join(lines, "\n"))
+				fingerprint, err := addPem(pem)
+				if err != nil {
+					http.Error(c, err.Error(), 400)
+					return
+				}
+				ret = append(ret, CertRet{
+					fingerprint,
+					state.BaseUrl + "/cert/" + fingerprint,
+				})
 				capturing = false
 			}
 		}
+	}
+	jsonify(c, struct {
+		Certs []CertRet `json:"certs"`
+	}{
+		ret,
+	})
+}
+
+func GetCertificate(c http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	fingerprint := params["fingerprint"]
+
+	var d dao.CertDao
+
+	state.DB.Where("fingerprint = ?", fingerprint).First(&d)
+	if d.Id != 0 {
+		io.WriteString(c, d.Pem)
+		io.WriteString(c, "\n")
+	} else {
+		http.NotFound(c, r)
 	}
 }
 
@@ -371,5 +456,7 @@ func Register(rtr *mux.Router, _state *common.State) {
 		GetInvitation).Methods("GET")
 	rtr.HandleFunc("/cert/",
 		AddCertificate).Methods("POST")
+	rtr.HandleFunc("/cert/{fingerprint:[a-z0-9]+}",
+		GetCertificate).Methods("GET")
 
 }
