@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"crypto"
+	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/x509"
@@ -13,6 +14,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"github.com/boivie/gojws"
 	"github.com/boivie/sec/common"
 	"github.com/boivie/sec/dao"
@@ -20,6 +22,7 @@ import (
 	"github.com/op/go-logging"
 	"io"
 	"io/ioutil"
+	"math/big"
 	"math/rand"
 	"net/http"
 	"strconv"
@@ -149,11 +152,11 @@ func CreateInvitation(c http.ResponseWriter, r *http.Request) {
 type keyProvider struct {
 }
 
-func (sk keyProvider) GetJWSKey(h gojws.Header) (crypto.PublicKey, error) {
+func loadPublicKey(fingerprint string) (crypto.PublicKey, error) {
 	var cert dao.CertDao
-	state.DB.Where("fingerprint = ?", h.X5t).First(&cert)
+	state.DB.Where("fingerprint = ?", fingerprint).First(&cert)
 	if cert.Id == 0 {
-		log.Warning("Key not found: %s", h.X5t)
+		log.Warning("Key not found: %s", fingerprint)
 		return nil, errors.New("Key not found")
 	}
 	block, _ := pem.Decode([]byte(cert.Pem))
@@ -164,13 +167,81 @@ func (sk keyProvider) GetJWSKey(h gojws.Header) (crypto.PublicKey, error) {
 	if err != nil {
 		return nil, errors.New("Failed to parse certificate")
 	}
+
 	return x5c.PublicKey, nil
+}
+
+func safeDecode(str string) ([]byte, error) {
+	lenMod4 := len(str) % 4
+	if lenMod4 > 0 {
+		str = str + strings.Repeat("=", 4-lenMod4)
+	}
+
+	return base64.URLEncoding.DecodeString(str)
+}
+
+func loadJwk(jwk string) (crypto.PublicKey, error) {
+	var key struct {
+		Kty string `json:"kty"`
+		N   string `json:"n"`
+		E   string `json:"e"`
+	}
+	err := json.Unmarshal([]byte(jwk), &key)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to unmarshal key: %v", err)
+	}
+
+	switch key.Kty {
+	case "RSA":
+		if key.N == "" || key.E == "" {
+			return nil, errors.New("Malformed JWS RSA key")
+		}
+
+		data, err := safeDecode(key.E)
+		if err != nil {
+			return nil, errors.New("Malformed JWS RSA key")
+		}
+		if len(data) < 4 {
+			ndata := make([]byte, 4)
+			copy(ndata[4-len(data):], data)
+			data = ndata
+		}
+
+		pubKey := &rsa.PublicKey{
+			N: &big.Int{},
+			E: int(binary.BigEndian.Uint32(data[:])),
+		}
+
+		data, err = safeDecode(key.N)
+		if err != nil {
+			return nil, errors.New("Malformed JWS RSA key")
+		}
+		pubKey.N.SetBytes(data)
+
+		return pubKey, nil
+
+	default:
+		return nil, fmt.Errorf("Unknown JWS key type %s", key.Kty)
+	}
+}
+
+func (sk keyProvider) GetJWSKey(h gojws.Header) (crypto.PublicKey, error) {
+	if h.X5t != "" {
+		return loadPublicKey(h.X5t)
+	} else if h.Jwk != "" {
+		return loadJwk(h.Jwk)
+	} else {
+		return nil, errors.New("No key specified")
+	}
 }
 
 func parseJws(tokenString string) (header gojws.Header, payload map[string]interface{}, err error) {
 	kp := keyProvider{}
 	var data []byte
 	header, data, err = gojws.VerifyAndDecodeWithHeader(tokenString, kp)
+	if err != nil {
+		log.Warning("%v", err)
+	}
 	err = json.Unmarshal(data, &payload)
 	return
 }
@@ -238,7 +309,7 @@ func validateChain(invitation dao.InvitationDao, jwss []string) error {
 	for idx, jws := range jwss {
 		header, payload, err := parseJws(jws)
 		if err != nil {
-			log.Warning("Entry %d, fail: %s",
+			log.Warning("Entry %d, fail: %v",
 				idx, err)
 			return errors.New("jws_parse_failed")
 		}

@@ -20,13 +20,22 @@ def extract_pem(cert):
             if l.startswith("-----END CERTIFICATE-----"):
                 return "".join(ret)
 
-            
-def base64_bigint(i):
-    b = bytearray()
-    while i:
-        b.append(i & 0xFF)
-        i >>= 8
-    return base64.b64encode(bytes(b))
+
+def b64_encode(source):
+    if not isinstance(source, bytes):
+        source = source.encode('ascii')
+
+    encoded = base64.urlsafe_b64encode(source).replace(b'=', b'')
+    return str(encoded.decode('ascii'))
+
+
+def base64_bigint(source):
+    result_reversed = []
+    while source:
+        source, remainder = divmod(source, 256)
+        result_reversed.append(remainder)
+
+    return b64_encode(bytes(bytearray(reversed(result_reversed))))
 
 
 class PartSigner(object):
@@ -46,13 +55,12 @@ class PartSigner(object):
             self.last_parent = base64.b64encode(h)
 
     def generate(self, section_type, obj):
-        if section_type == "public_keys":
+        if section_type == "public-keys":
             jwk = {"kty": "RSA",
                    "n": base64_bigint(self.pkey.n),
-                   "e": base64_bigint(self.pkey.e),
-                   "d": base64_bigint(self.pkey.d)}
+                   "e": base64_bigint(self.pkey.e)}
             header  = {'alg': 'RS256', 'typ': section_type,
-                       'jwk': jwk}
+                       'jwk': json.dumps(jwk)}
         else:
             header  = {'alg': 'RS256', 'typ': section_type,
                        'x5t': self.fingerprint}
@@ -82,3 +90,5 @@ if __name__ == "__main__":
                           extra=dict(employee_id="23056791"))))
     print(s.generate("msg",
                      dict(message="This is a simple message")))
+    print(s.generate("public-keys",
+                     dict(additional_keys=[])))
