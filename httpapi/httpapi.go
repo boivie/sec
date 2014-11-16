@@ -130,7 +130,7 @@ func parseInvitationId(id string) (dbId int64, secret int64, err error) {
 	return
 }
 
-func CreateInvitation(c http.ResponseWriter, r *http.Request) {
+func CreateRequest(c http.ResponseWriter, r *http.Request) {
 	iDao := dao.InvitationDao{
 		Secret:    generateSecret(),
 		CreatedAt: time.Now()}
@@ -342,7 +342,7 @@ func filterNew(current string, requested string) []string {
 	return ret
 }
 
-func UpdateInvitation(c http.ResponseWriter, r *http.Request) {
+func UpdateRequest(c http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	dbId, secret, err := parseInvitationId(params["id"])
 	if err != nil {
@@ -385,7 +385,7 @@ func UpdateInvitation(c http.ResponseWriter, r *http.Request) {
 	}{last_hash})
 }
 
-func GetInvitation(c http.ResponseWriter, r *http.Request) {
+func GetRequest(c http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	dbId, secret, err := parseInvitationId(params["id"])
 	if err != nil {
@@ -496,14 +496,14 @@ func Register(rtr *mux.Router, _state *common.State) {
 		GetInvitationTemplateList).Methods("GET")
 	rtr.HandleFunc("/identity/template/{id:[0-9]+}",
 		GetInvitationTemplate).Methods("GET")
-	rtr.HandleFunc("/invitation/",
-		CreateInvitation).Methods("POST")
-	rtr.HandleFunc("/invitation/{id:[A-Za-z0-9]+}",
-		UpdateInvitation).Methods("POST")
-	rtr.HandleFunc("/invitation/{id:[A-Za-z0-9]+}",
-		GetInvitation).Methods("GET")
+	rtr.HandleFunc("/request/",
+		CreateRequest).Methods("POST")
+	rtr.HandleFunc("/request/{id:[A-Za-z0-9]+}",
+		UpdateRequest).Methods("POST")
+	rtr.HandleFunc("/request/{id:[A-Za-z0-9]+}",
+		GetRequest).Methods("GET")
 	rtr.HandleFunc("/R/{id:[A-Za-z0-9]+}",
-		GetInvitation).Methods("GET")
+		GetRequest).Methods("GET")
 	rtr.HandleFunc("/cert/",
 		AddCertificate).Methods("POST")
 	rtr.HandleFunc("/cert/{fingerprint:[a-zA-Z0-9_-]+}",
