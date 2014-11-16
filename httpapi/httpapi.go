@@ -4,13 +4,9 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/rsa"
-	"crypto/sha1"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base32"
-	"encoding/base64"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -18,6 +14,8 @@ import (
 	"github.com/boivie/gojws"
 	"github.com/boivie/sec/common"
 	"github.com/boivie/sec/dao"
+	"github.com/boivie/sec/store"
+	"github.com/boivie/sec/utils"
 	"github.com/gorilla/mux"
 	"github.com/op/go-logging"
 	"io"
@@ -33,6 +31,7 @@ import (
 var (
 	log   = logging.MustGetLogger("sec")
 	state *common.State
+	stor  store.Store
 )
 
 func jsonify(c http.ResponseWriter, s interface{}) {
@@ -141,43 +140,17 @@ func CreateInvitation(c http.ResponseWriter, r *http.Request) {
 	log.Info("Created invitation %s", invitationId)
 
 	jsonify(c, struct {
-		Id  string `json:"id"`
-		Uri string `json:"url"`
+		Id    string `json:"id"`
+		Uri   string `json:"url"`
+		Qruri string `json:"qr_url"`
 	}{
 		invitationId,
 		state.BaseUrl + "/invitation/" + invitationId,
+		strings.ToUpper(state.BaseUrl) + "/R/" + invitationId,
 	})
 }
 
 type keyProvider struct {
-}
-
-func loadPublicKey(fingerprint string) (crypto.PublicKey, error) {
-	var cert dao.CertDao
-	state.DB.Where("fingerprint = ?", fingerprint).First(&cert)
-	if cert.Id == 0 {
-		log.Warning("Key not found: %s", fingerprint)
-		return nil, errors.New("Key not found")
-	}
-	block, _ := pem.Decode([]byte(cert.Pem))
-	if block == nil {
-		return nil, errors.New("Invalid PEM")
-	}
-	x5c, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return nil, errors.New("Failed to parse certificate")
-	}
-
-	return x5c.PublicKey, nil
-}
-
-func safeDecode(str string) ([]byte, error) {
-	lenMod4 := len(str) % 4
-	if lenMod4 > 0 {
-		str = str + strings.Repeat("=", 4-lenMod4)
-	}
-
-	return base64.URLEncoding.DecodeString(str)
 }
 
 func loadJwk(jwk string) (crypto.PublicKey, error) {
@@ -197,7 +170,7 @@ func loadJwk(jwk string) (crypto.PublicKey, error) {
 			return nil, errors.New("Malformed JWS RSA key")
 		}
 
-		data, err := safeDecode(key.E)
+		data, err := utils.B64decode(key.E)
 		if err != nil {
 			return nil, errors.New("Malformed JWS RSA key")
 		}
@@ -212,7 +185,7 @@ func loadJwk(jwk string) (crypto.PublicKey, error) {
 			E: int(binary.BigEndian.Uint32(data[:])),
 		}
 
-		data, err = safeDecode(key.N)
+		data, err = utils.B64decode(key.N)
 		if err != nil {
 			return nil, errors.New("Malformed JWS RSA key")
 		}
@@ -225,14 +198,18 @@ func loadJwk(jwk string) (crypto.PublicKey, error) {
 	}
 }
 
-func (sk keyProvider) GetJWSKey(h gojws.Header) (crypto.PublicKey, error) {
+func (sk keyProvider) GetJWSKey(h gojws.Header) (key crypto.PublicKey, err error) {
 	if h.X5t != "" {
-		return loadPublicKey(h.X5t)
+		cert, err := stor.LoadCert(h.X5t)
+		if err == nil {
+			key = cert.PublicKey
+		}
 	} else if h.Jwk != "" {
-		return loadJwk(h.Jwk)
+		key, err = loadJwk(h.Jwk)
 	} else {
-		return nil, errors.New("No key specified")
+		err = errors.New("No key specified")
 	}
+	return
 }
 
 func parseJws(tokenString string) (header gojws.Header, payload map[string]interface{}, err error) {
@@ -244,19 +221,6 @@ func parseJws(tokenString string) (header gojws.Header, payload map[string]inter
 	}
 	err = json.Unmarshal(data, &payload)
 	return
-}
-
-func calculateHash(jws string) (ret string) {
-	lastDot := strings.LastIndex(jws, ".")
-	part12 := jws[0:lastDot]
-	hash := sha256.New()
-	hash.Write([]byte(part12))
-
-	var buf bytes.Buffer
-	encoder := base64.NewEncoder(base64.StdEncoding, &buf)
-	encoder.Write(hash.Sum(nil))
-	encoder.Close()
-	return buf.String()
 }
 
 type Part struct {
@@ -280,21 +244,46 @@ var validators = map[string]PartValidator{
 	"invitation": ValidateInvitation,
 }
 
-func validateParents(parts []Part) bool {
+type Header struct {
+	Parent string   `json:"parent"`
+	Refs   []string `json:"refs"`
+}
+
+func validateHeaders(parts []Part) bool {
+	hash2part := make(map[string]Part)
+	for _, part := range parts {
+		hash2part[part.hash] = part
+	}
+
 	var parent string = ""
 	for idx, part := range parts {
 		log.Info("Processing jws %d (type %s, hash %s)",
 			idx, part.header.Typ, part.hash)
+
+		var header Header
+		headerJson, _ := json.Marshal(part.payload["header"])
+		if err := json.Unmarshal(headerJson, &header); err != nil {
+			return false
+		}
+
+		for _, ref := range header.Refs {
+			if _, present := hash2part[ref]; !present {
+				log.Warning("Entry %d has ref %s, not found",
+					idx, ref)
+				return false
+			}
+		}
+
 		if idx == 0 {
-			if _, present := part.payload["parent"]; present {
+			if header.Parent != "" {
 				log.Warning("Entry %d has parent %s, shouldn't",
-					idx, part.payload["parent"])
+					idx, header.Parent)
 				return false
 			}
 		} else {
-			if part.payload["parent"] != parent {
+			if header.Parent != parent {
 				log.Warning("Entry %d has parent %s != %s",
-					idx, part.payload["parent"], parent)
+					idx, header.Parent, parent)
 				return false
 			}
 		}
@@ -313,11 +302,11 @@ func validateChain(invitation dao.InvitationDao, jwss []string) error {
 				idx, err)
 			return errors.New("jws_parse_failed")
 		}
-		hash := calculateHash(jws)
+		hash := utils.GetFingerprint([]byte(jws))
 		parts = append(parts, Part{header, payload, hash})
 	}
 
-	if !validateParents(parts) {
+	if !validateHeaders(parts) {
 		return errors.New("invalid_parents")
 	}
 
@@ -383,7 +372,7 @@ func UpdateInvitation(c http.ResponseWriter, r *http.Request) {
 	jwss := append(cleanAndSplit(iDao.Payload),
 		filterNew(iDao.Payload, string(b))...)
 
-	last_hash := calculateHash(jwss[len(jwss)-1])
+	last_hash := utils.GetFingerprint([]byte(jwss[len(jwss)-1]))
 
 	if err = validateChain(iDao, jwss); err != nil {
 		http.Error(c, err.Error(), 400)
@@ -432,25 +421,9 @@ func addPem(ascii string) (fingerprint string, err error) {
 		err = errors.New("invalid_pem")
 		return
 	}
-	hash := sha1.New()
-	hash.Write(cert.Raw)
-	fingerprint = hex.EncodeToString(hash.Sum(nil))
-	var d dao.CertDao
 
-	state.DB.Where("fingerprint = ?", fingerprint).First(&d)
-	if d.Id != 0 {
-		log.Info("Cert %d with fingerprint %s already existed",
-			d.Id, fingerprint)
-	} else {
-		d := dao.CertDao{
-			Fingerprint: fingerprint,
-			Pem:         ascii,
-			NotBefore:   cert.NotBefore,
-			NotAfter:    cert.NotAfter,
-		}
-		state.DB.Create(&d)
-		log.Info("Adding cert %d with fingerprint: %s", d.Id, fingerprint)
-	}
+	fingerprint = utils.GetCertFingerprint(cert)
+	err = stor.StoreCert(cert)
 	return
 }
 
@@ -502,19 +475,23 @@ func GetCertificate(c http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	fingerprint := params["fingerprint"]
 
-	var d dao.CertDao
-
-	state.DB.Where("fingerprint = ?", fingerprint).First(&d)
-	if d.Id != 0 {
-		io.WriteString(c, d.Pem)
-		io.WriteString(c, "\n")
-	} else {
+	cert, err := stor.LoadCert(fingerprint)
+	if err != nil {
 		http.NotFound(c, r)
+	} else {
+		pemString, err := utils.GetCertPem(cert.Raw)
+		if err != nil {
+			http.Error(c, err.Error(), 500)
+		} else {
+			io.WriteString(c, pemString)
+			io.WriteString(c, "\n")
+		}
 	}
 }
 
 func Register(rtr *mux.Router, _state *common.State) {
 	state = _state
+	stor = store.NewDBStore(_state)
 	rtr.HandleFunc("/identity/template/",
 		GetInvitationTemplateList).Methods("GET")
 	rtr.HandleFunc("/identity/template/{id:[0-9]+}",
@@ -525,9 +502,11 @@ func Register(rtr *mux.Router, _state *common.State) {
 		UpdateInvitation).Methods("POST")
 	rtr.HandleFunc("/invitation/{id:[A-Za-z0-9]+}",
 		GetInvitation).Methods("GET")
+	rtr.HandleFunc("/R/{id:[A-Za-z0-9]+}",
+		GetInvitation).Methods("GET")
 	rtr.HandleFunc("/cert/",
 		AddCertificate).Methods("POST")
-	rtr.HandleFunc("/cert/{fingerprint:[a-z0-9]+}",
+	rtr.HandleFunc("/cert/{fingerprint:[a-zA-Z0-9_-]+}",
 		GetCertificate).Methods("GET")
 
 }

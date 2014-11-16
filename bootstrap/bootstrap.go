@@ -1,0 +1,93 @@
+package bootstrap
+
+import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"github.com/boivie/sec/common"
+	"github.com/boivie/sec/store"
+	"github.com/op/go-logging"
+	"math/big"
+	"os"
+	"time"
+)
+
+var (
+	log = logging.MustGetLogger("sec")
+)
+
+func generateKeyAndCert(subject pkix.Name) (priv *rsa.PrivateKey, cert *x509.Certificate) {
+	log.Info("Generating private key, 2048 bits")
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		log.Fatalf("failed to generate private key: %v", err)
+	}
+	notBefore := time.Now()
+	notAfter := notBefore.Add(30 * 365 * 24 * time.Hour)
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	if err != nil {
+		log.Fatalf("failed to generate serial number: %s", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject:      subject,
+		NotBefore:    notBefore,
+		NotAfter:     notAfter,
+
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+		IsCA: true,
+	}
+
+	certDer, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+
+	if err != nil {
+		log.Fatalf("Failed to create certificate: %s", err)
+	}
+
+	cert, err = x509.ParseCertificate(certDer)
+
+	return
+}
+
+func writeCert(cert *x509.Certificate, filename string) {
+	certOut, err := os.Create(filename)
+	if err != nil {
+		log.Fatalf("failed to open %s for writing: %s", filename, err)
+	}
+	pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
+	certOut.Close()
+	log.Info("written %s\n", filename)
+}
+
+func writeKey(priv *rsa.PrivateKey, filename string) {
+	der := x509.MarshalPKCS1PrivateKey(priv)
+
+	keyOut, err := os.OpenFile(filename,
+		os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		log.Fatalf("failed to open %s for writing:", filename, err)
+	}
+	pem.Encode(keyOut, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: der})
+	keyOut.Close()
+	log.Info("written %s\n", filename)
+}
+
+func Bootstrap(state *common.State) {
+	s := store.NewDBStore(state)
+	webSubj := pkix.Name{CommonName: "Test Web Cert"}
+	webPriv, webCert := generateKeyAndCert(webSubj)
+	writeKey(webPriv, "web.key")
+	writeCert(webCert, "web.crt")
+	s.StoreCert(webCert)
+
+	issuerSubj := pkix.Name{CommonName: "Test Issuer"}
+	issuerPriv, issuerCert := generateKeyAndCert(issuerSubj)
+	writeKey(issuerPriv, "issuer.key")
+	writeCert(issuerCert, "issuer.crt")
+	s.StoreCert(issuerCert)
+}

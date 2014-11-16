@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"flag"
 	"fmt"
+	"github.com/boivie/sec/bootstrap"
 	"github.com/boivie/sec/common"
 	"github.com/boivie/sec/dao"
 	"github.com/boivie/sec/httpapi"
@@ -100,6 +101,9 @@ func main() {
 	log.Info("Base URL: '%s'", state.BaseUrl)
 
 	signal.Notify(signalchan, syscall.SIGTERM)
+
+	// bootstrap!
+	bootstrap.Bootstrap(&state)
 
 	go httpServer(8989, &state)
 
