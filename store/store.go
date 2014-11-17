@@ -12,4 +12,6 @@ type Store interface {
 	GetRequest(id int64, secret int64) (obj dao.RequestDao, err error)
 	UpdateRequest(id int64, oldVersion int32, update dao.RequestDao) (err error)
 	StoreTemplate(name string, contents string) (err error)
+	GetTemplate(name string) (contents string, err error)
+	GetTemplateList() (names []string, err error)
 }

@@ -123,6 +123,26 @@ func (dbs DBStore) StoreTemplate(name string, payload string) (err error) {
 	return
 }
 
+func (dbs DBStore) GetTemplate(name string) (contents string, err error) {
+	var t dao.TemplateDao
+	dbs.state.DB.Where("name = ?", name).First(&t)
+	if t.Id == 0 {
+		err = errors.New("not_found")
+	} else {
+		contents = t.Payload
+	}
+	return
+}
+
+func (dbs DBStore) GetTemplateList() (names []string, err error) {
+	var templates []dao.TemplateDao
+	dbs.state.DB.Find(&templates)
+	for _, template := range templates {
+		names = append(names, template.Name)
+	}
+	return
+}
+
 func NewDBStore(state *common.State) store.Store {
 	return &DBStore{state}
 }

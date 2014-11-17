@@ -43,16 +43,29 @@ func jsonify(c http.ResponseWriter, s interface{}) {
 	io.WriteString(c, "\n")
 }
 
-func GetInvitationTemplateList(c http.ResponseWriter, r *http.Request) {
+func GetTemplateList(c http.ResponseWriter, r *http.Request) {
+	names, _ := stor.GetTemplateList()
+
 	s := struct {
-	}{}
+		Templates []string `json:"templates"`
+	}{
+		names,
+	}
 	jsonify(c, s)
 }
 
-func GetInvitationTemplate(c http.ResponseWriter, r *http.Request) {
-	s := struct {
-	}{}
-	jsonify(c, s)
+func GetTemplate(c http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	name := params["name"]
+	t, err := stor.GetTemplate(name)
+	if err != nil {
+		log.Info("Invalid template: %v", err)
+		http.NotFound(c, r)
+		return
+	}
+	c.Header().Add("Content-Length", strconv.Itoa(len(t)+1))
+	io.WriteString(c, t)
+	io.WriteString(c, "\n")
 }
 
 func generateSecret() int64 {
@@ -381,10 +394,10 @@ func GetCertificate(c http.ResponseWriter, r *http.Request) {
 func Register(rtr *mux.Router, _state *common.State) {
 	state = _state
 	stor = dbstore.NewDBStore(_state)
-	rtr.HandleFunc("/identity/template/",
-		GetInvitationTemplateList).Methods("GET")
-	rtr.HandleFunc("/identity/template/{id:[0-9]+}",
-		GetInvitationTemplate).Methods("GET")
+	rtr.HandleFunc("/template/",
+		GetTemplateList).Methods("GET")
+	rtr.HandleFunc("/template/{name:[a-z-]+}",
+		GetTemplate).Methods("GET")
 	rtr.HandleFunc("/request/",
 		CreateRequest).Methods("POST")
 	rtr.HandleFunc("/request/{id:[A-Za-z0-9]+}",

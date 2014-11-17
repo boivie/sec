@@ -129,6 +129,14 @@ func Bootstrap(state *common.State) {
 		Title:  "Certificate Issuer",
 		Fields: []TemplateField{{"title"}},
 	}
-	signed, _ := signTemplate(issuer, webPriv, webCert)
-	s.StoreTemplate(issuer.Name, signed)
+	isigned, _ := signTemplate(issuer, webPriv, webCert)
+	s.StoreTemplate(issuer.Name, isigned)
+
+	client := TemplateInput{
+		Name:   "client",
+		Title:  "Client",
+		Fields: []TemplateField{{"username"}},
+	}
+	csigned, _ := signTemplate(client, webPriv, webCert)
+	s.StoreTemplate(client.Name, csigned)
 }
