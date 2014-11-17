@@ -4,7 +4,7 @@ import (
 	"time"
 )
 
-type InvitationDao struct {
+type RequestDao struct {
 	Id        int64
 	Secret    int64
 	CreatedAt time.Time
@@ -47,8 +47,8 @@ func (t TemplateDao) TableName() string {
 	return "templates"
 }
 
-func (t InvitationDao) TableName() string {
-	return "invitations"
+func (t RequestDao) TableName() string {
+	return "requests"
 }
 
 func (t IdentityDao) TableName() string {

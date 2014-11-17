@@ -25,7 +25,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 )
 
 var (
@@ -131,12 +130,14 @@ func parseInvitationId(id string) (dbId int64, secret int64, err error) {
 }
 
 func CreateRequest(c http.ResponseWriter, r *http.Request) {
-	iDao := dao.InvitationDao{
-		Secret:    generateSecret(),
-		CreatedAt: time.Now()}
-	state.DB.Create(&iDao)
-
-	invitationId := getStringId(iDao.Id, iDao.Secret)
+	secret := generateSecret()
+	id, err := stor.CreateRequest(secret)
+	if err != nil {
+		log.Error("Failed to create request: %v", err)
+		http.Error(c, "internal_error", 500)
+		return
+	}
+	invitationId := getStringId(id, secret)
 	log.Info("Created invitation %s", invitationId)
 
 	jsonify(c, struct {
@@ -229,9 +230,9 @@ type Part struct {
 	hash    string
 }
 
-type PartValidator func(invitation dao.InvitationDao, parts []Part, idx int) error
+type PartValidator func(invitation dao.RequestDao, parts []Part, idx int) error
 
-func ValidateInvitation(iDao dao.InvitationDao, parts []Part, idx int) error {
+func ValidateInvitation(iDao dao.RequestDao, parts []Part, idx int) error {
 	invitationId := getStringId(iDao.Id, iDao.Secret)
 	if parts[idx].payload["invitation_id"] != invitationId {
 		log.Warning("Invitation part's invitation id doesn't match")
@@ -292,7 +293,7 @@ func validateHeaders(parts []Part) bool {
 	return true
 }
 
-func validateChain(invitation dao.InvitationDao, jwss []string) error {
+func validateChain(invitation dao.RequestDao, jwss []string) error {
 	parts := make([]Part, 0)
 
 	for idx, jws := range jwss {
@@ -356,7 +357,7 @@ func UpdateRequest(c http.ResponseWriter, r *http.Request) {
 		http.NotFound(c, r)
 		return
 	}
-	var iDao dao.InvitationDao
+	var iDao dao.RequestDao
 
 	// TODO: "FOR UPDATE"
 	state.DB.First(&iDao, dbId)
@@ -392,7 +393,7 @@ func GetRequest(c http.ResponseWriter, r *http.Request) {
 		log.Info("Invalid id:", err)
 		http.NotFound(c, r)
 	} else {
-		var iDao dao.InvitationDao
+		var iDao dao.RequestDao
 		state.DB.First(&iDao, dbId)
 		if iDao.Id == 0 {
 			http.NotFound(c, r)
@@ -481,7 +482,8 @@ func GetCertificate(c http.ResponseWriter, r *http.Request) {
 	} else {
 		pemString, err := utils.GetCertPem(cert.Raw)
 		if err != nil {
-			http.Error(c, err.Error(), 500)
+			log.Error("Failed to parse cert: %v", err)
+			http.Error(c, "internal_error", 500)
 		} else {
 			io.WriteString(c, pemString)
 			io.WriteString(c, "\n")

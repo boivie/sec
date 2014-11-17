@@ -65,7 +65,7 @@ func getHostname() string {
 
 func initDb(state *common.State) {
 	state.DB.AutoMigrate(&dao.TemplateDao{})
-	state.DB.AutoMigrate(&dao.InvitationDao{})
+	state.DB.AutoMigrate(&dao.RequestDao{})
 	state.DB.AutoMigrate(&dao.IdentityDao{})
 	state.DB.AutoMigrate(&dao.CertDao{})
 }

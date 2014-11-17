@@ -8,6 +8,7 @@ import (
 	"github.com/boivie/sec/dao"
 	"github.com/boivie/sec/utils"
 	"github.com/op/go-logging"
+	"time"
 )
 
 var (
@@ -21,6 +22,16 @@ type DBStore struct {
 type Store interface {
 	LoadCert(fingerprint string) (*x509.Certificate, error)
 	StoreCert(cert *x509.Certificate) error
+	CreateRequest(secret int64) (id int64, err error)
+}
+
+func (dbs DBStore) CreateRequest(secret int64) (id int64, err error) {
+	iDao := dao.RequestDao{
+		Secret:    secret,
+		CreatedAt: time.Now()}
+	dbs.state.DB.Create(&iDao)
+	id = iDao.Id
+	return
 }
 
 func (dbs DBStore) LoadCert(fingerprint string) (cert *x509.Certificate, err error) {
