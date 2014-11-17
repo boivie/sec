@@ -23,6 +23,8 @@ type Store interface {
 	LoadCert(fingerprint string) (*x509.Certificate, error)
 	StoreCert(cert *x509.Certificate) error
 	CreateRequest(secret int64) (id int64, err error)
+	GetRequest(id int64, secret int64) (obj dao.RequestDao, err error)
+	UpdateRequest(id int64, oldVersion int32, update dao.RequestDao) (err error)
 }
 
 func (dbs DBStore) CreateRequest(secret int64) (id int64, err error) {
@@ -31,6 +33,27 @@ func (dbs DBStore) CreateRequest(secret int64) (id int64, err error) {
 		CreatedAt: time.Now()}
 	dbs.state.DB.Create(&iDao)
 	id = iDao.Id
+	return
+}
+
+func (dbs DBStore) GetRequest(id int64, secret int64) (obj dao.RequestDao, err error) {
+	var iDao dao.RequestDao
+	dbs.state.DB.First(&iDao, id)
+	if iDao.Id == 0 {
+		err = errors.New("Not found")
+	} else if iDao.Secret != secret {
+		err = errors.New("Bad secret")
+	} else {
+		obj = iDao
+	}
+	return
+}
+
+func (dbs DBStore) UpdateRequest(id int64, version int32, update dao.RequestDao) (err error) {
+	count := dbs.state.DB.Table("requests").Where("id = ? AND version = ?", id, version).Updates(update).RowsAffected
+	if count != 1 {
+		err = errors.New("old_version")
+	}
 	return
 }
 

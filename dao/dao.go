@@ -7,6 +7,7 @@ import (
 type RequestDao struct {
 	Id        int64
 	Secret    int64
+	Version   int32
 	CreatedAt time.Time
 	Payload   string `sql:"type:text"` // newline-separated JWS
 }

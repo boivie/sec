@@ -146,7 +146,7 @@ func CreateRequest(c http.ResponseWriter, r *http.Request) {
 		Qruri string `json:"qr_url"`
 	}{
 		invitationId,
-		state.BaseUrl + "/invitation/" + invitationId,
+		state.BaseUrl + "/request/" + invitationId,
 		strings.ToUpper(state.BaseUrl) + "/R/" + invitationId,
 	})
 }
@@ -357,15 +357,10 @@ func UpdateRequest(c http.ResponseWriter, r *http.Request) {
 		http.NotFound(c, r)
 		return
 	}
-	var iDao dao.RequestDao
 
-	// TODO: "FOR UPDATE"
-	state.DB.First(&iDao, dbId)
-	if iDao.Id == 0 {
-		http.NotFound(c, r)
-		return
-	}
-	if iDao.Secret != secret {
+	iDao, err := stor.GetRequest(dbId, secret)
+	if err != nil {
+		log.Warning("UpdateRequest(%s) -> %v", params["id"], err)
 		http.NotFound(c, r)
 		return
 	}
@@ -379,8 +374,15 @@ func UpdateRequest(c http.ResponseWriter, r *http.Request) {
 		http.Error(c, err.Error(), 400)
 		return
 	}
-	iDao.Payload = strings.TrimSpace(strings.Join(jwss, "\n"))
-	state.DB.Save(&iDao)
+	payload := strings.TrimSpace(strings.Join(jwss, "\n"))
+
+	update := dao.RequestDao{Version: iDao.Version + 1, Payload: payload}
+	err = stor.UpdateRequest(dbId, iDao.Version, update)
+	if err != nil {
+		http.Error(c, "request_stale", 400)
+		return
+	}
+
 	jsonify(c, struct {
 		Hash string `json:"hash"`
 	}{last_hash})
@@ -393,18 +395,11 @@ func GetRequest(c http.ResponseWriter, r *http.Request) {
 		log.Info("Invalid id:", err)
 		http.NotFound(c, r)
 	} else {
-		var iDao dao.RequestDao
-		state.DB.First(&iDao, dbId)
-		if iDao.Id == 0 {
-			http.NotFound(c, r)
-			return
+		obj, err := stor.GetRequest(dbId, secret)
+		if err != nil {
+			log.Warning("GetRequest(%s) -> %v", params["id"], err)
 		}
-		if iDao.Secret != secret {
-			http.NotFound(c, r)
-			return
-		}
-
-		io.WriteString(c, iDao.Payload)
+		io.WriteString(c, obj.Payload)
 		io.WriteString(c, "\n")
 	}
 }
