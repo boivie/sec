@@ -20,8 +20,7 @@ type Template struct {
 
 type TemplateDao struct {
 	Id      int64
-	Secret  int64
-	Name    string `sql:"size:64"`
+	Name    string `sql:"size:32;unique"`
 	Payload string `sql:"type:text"`
 }
 

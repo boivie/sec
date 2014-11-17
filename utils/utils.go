@@ -2,12 +2,25 @@ package utils
 
 import (
 	"bytes"
+	"crypto"
+	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/binary"
+	"encoding/json"
 	"encoding/pem"
+	"errors"
+	"fmt"
+	"github.com/boivie/gojws"
+	"github.com/op/go-logging"
+	"math/big"
 	"strings"
+)
+
+var (
+	log = logging.MustGetLogger("sec")
 )
 
 func B64encode(data []byte) string {
@@ -55,4 +68,59 @@ func GetCertFingerprint(cert *x509.Certificate) string {
 	hash := sha1.New()
 	hash.Write(cert.Raw)
 	return B64encode(hash.Sum(nil))
+}
+
+func ParseJws(tokenString string, kp gojws.KeyProvider) (header gojws.Header, payload map[string]interface{}, err error) {
+	var data []byte
+	header, data, err = gojws.VerifyAndDecodeWithHeader(tokenString, kp)
+	if err != nil {
+		log.Warning("%v", err)
+	}
+	err = json.Unmarshal(data, &payload)
+	return
+}
+
+func LoadJwk(jwk string) (crypto.PublicKey, error) {
+	var key struct {
+		Kty string `json:"kty"`
+		N   string `json:"n"`
+		E   string `json:"e"`
+	}
+	err := json.Unmarshal([]byte(jwk), &key)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to unmarshal key: %v", err)
+	}
+
+	switch key.Kty {
+	case "RSA":
+		if key.N == "" || key.E == "" {
+			return nil, errors.New("Malformed JWS RSA key")
+		}
+
+		data, err := B64decode(key.E)
+		if err != nil {
+			return nil, errors.New("Malformed JWS RSA key")
+		}
+		if len(data) < 4 {
+			ndata := make([]byte, 4)
+			copy(ndata[4-len(data):], data)
+			data = ndata
+		}
+
+		pubKey := &rsa.PublicKey{
+			N: &big.Int{},
+			E: int(binary.BigEndian.Uint32(data[:])),
+		}
+
+		data, err = B64decode(key.N)
+		if err != nil {
+			return nil, errors.New("Malformed JWS RSA key")
+		}
+		pubKey.N.SetBytes(data)
+
+		return pubKey, nil
+
+	default:
+		return nil, fmt.Errorf("Unknown JWS key type %s", key.Kty)
+	}
 }

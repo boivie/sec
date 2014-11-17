@@ -5,9 +5,12 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
+	"github.com/boivie/gojws"
 	"github.com/boivie/sec/common"
-	"github.com/boivie/sec/store"
+	"github.com/boivie/sec/store/dbstore"
+	"github.com/boivie/sec/utils"
 	"github.com/op/go-logging"
 	"math/big"
 	"os"
@@ -77,8 +80,37 @@ func writeKey(priv *rsa.PrivateKey, filename string) {
 	log.Info("written %s\n", filename)
 }
 
+type TemplateField struct {
+	Name string `json:"name"`
+}
+
+type TemplateInput struct {
+	Name   string          `json:"name"`
+	Title  string          `json:"title"`
+	Fields []TemplateField `json:"fields"`
+}
+
+func signTemplate(tmpl TemplateInput, priv *rsa.PrivateKey, cert *x509.Certificate) (contents string, err error) {
+	fingerprint := utils.GetCertFingerprint(cert)
+	header := gojws.Header{
+		Alg: gojws.ALG_RS256,
+		Typ: "template",
+		X5t: fingerprint,
+	}
+	tmplBytes, err := json.Marshal(tmpl)
+	if err != nil {
+		return
+	}
+
+	j, err := gojws.Sign(header, tmplBytes, priv)
+	if err == nil {
+		contents = string(j)
+	}
+	return
+}
+
 func Bootstrap(state *common.State) {
-	s := store.NewDBStore(state)
+	s := dbstore.NewDBStore(state)
 	webSubj := pkix.Name{CommonName: "Test Web Cert"}
 	webPriv, webCert := generateKeyAndCert(webSubj)
 	writeKey(webPriv, "web.key")
@@ -90,4 +122,13 @@ func Bootstrap(state *common.State) {
 	writeKey(issuerPriv, "issuer.key")
 	writeCert(issuerCert, "issuer.crt")
 	s.StoreCert(issuerCert)
+
+	// Add the two templates:
+	issuer := TemplateInput{
+		Name:   "issuer",
+		Title:  "Certificate Issuer",
+		Fields: []TemplateField{{"title"}},
+	}
+	signed, _ := signTemplate(issuer, webPriv, webCert)
+	s.StoreTemplate(issuer.Name, signed)
 }

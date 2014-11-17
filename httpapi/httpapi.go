@@ -2,25 +2,22 @@ package httpapi
 
 import (
 	"bytes"
-	"crypto"
-	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base32"
 	"encoding/binary"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
-	"fmt"
 	"github.com/boivie/gojws"
 	"github.com/boivie/sec/common"
 	"github.com/boivie/sec/dao"
 	"github.com/boivie/sec/store"
+	"github.com/boivie/sec/store/dbstore"
 	"github.com/boivie/sec/utils"
 	"github.com/gorilla/mux"
 	"github.com/op/go-logging"
 	"io"
 	"io/ioutil"
-	"math/big"
 	"math/rand"
 	"net/http"
 	"strconv"
@@ -47,48 +44,15 @@ func jsonify(c http.ResponseWriter, s interface{}) {
 }
 
 func GetInvitationTemplateList(c http.ResponseWriter, r *http.Request) {
-	type TemplateBrief struct {
-		Id   string `json:"id"`
-		Name string `json:"name"`
-		Url  string `json:"url"`
-	}
-	var ret []TemplateBrief
-
-	var daos []dao.TemplateDao
-	state.DB.Find(&daos)
-
-	for _, t := range daos {
-		sid := getStringId(t.Id, t.Secret)
-		url := state.BaseUrl + "/identity/template/" + sid
-		ret = append(ret, TemplateBrief{sid, t.Name, url})
-	}
-
 	s := struct {
-		Templates []TemplateBrief `json:"templates"`
-	}{
-		ret,
-	}
+	}{}
 	jsonify(c, s)
 }
 
 func GetInvitationTemplate(c http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	if id, err := strconv.Atoi(params["id"]); err != nil {
-		http.NotFound(c, r)
-		return
-	} else {
-		var t_dao dao.TemplateDao
-		state.DB.First(&t_dao, id)
-		if t_dao.Id == 0 {
-			http.NotFound(c, r)
-		} else {
-			ret := dao.Template{
-				Id:      getStringId(t_dao.Id, t_dao.Secret),
-				Name:    t_dao.Name,
-				Payload: t_dao.Payload}
-			jsonify(c, ret)
-		}
-	}
+	s := struct {
+	}{}
+	jsonify(c, s)
 }
 
 func generateSecret() int64 {
@@ -149,79 +113,6 @@ func CreateRequest(c http.ResponseWriter, r *http.Request) {
 		state.BaseUrl + "/request/" + invitationId,
 		strings.ToUpper(state.BaseUrl) + "/R/" + invitationId,
 	})
-}
-
-type keyProvider struct {
-}
-
-func loadJwk(jwk string) (crypto.PublicKey, error) {
-	var key struct {
-		Kty string `json:"kty"`
-		N   string `json:"n"`
-		E   string `json:"e"`
-	}
-	err := json.Unmarshal([]byte(jwk), &key)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to unmarshal key: %v", err)
-	}
-
-	switch key.Kty {
-	case "RSA":
-		if key.N == "" || key.E == "" {
-			return nil, errors.New("Malformed JWS RSA key")
-		}
-
-		data, err := utils.B64decode(key.E)
-		if err != nil {
-			return nil, errors.New("Malformed JWS RSA key")
-		}
-		if len(data) < 4 {
-			ndata := make([]byte, 4)
-			copy(ndata[4-len(data):], data)
-			data = ndata
-		}
-
-		pubKey := &rsa.PublicKey{
-			N: &big.Int{},
-			E: int(binary.BigEndian.Uint32(data[:])),
-		}
-
-		data, err = utils.B64decode(key.N)
-		if err != nil {
-			return nil, errors.New("Malformed JWS RSA key")
-		}
-		pubKey.N.SetBytes(data)
-
-		return pubKey, nil
-
-	default:
-		return nil, fmt.Errorf("Unknown JWS key type %s", key.Kty)
-	}
-}
-
-func (sk keyProvider) GetJWSKey(h gojws.Header) (key crypto.PublicKey, err error) {
-	if h.X5t != "" {
-		cert, err := stor.LoadCert(h.X5t)
-		if err == nil {
-			key = cert.PublicKey
-		}
-	} else if h.Jwk != "" {
-		key, err = loadJwk(h.Jwk)
-	} else {
-		err = errors.New("No key specified")
-	}
-	return
-}
-
-func parseJws(tokenString string) (header gojws.Header, payload map[string]interface{}, err error) {
-	kp := keyProvider{}
-	var data []byte
-	header, data, err = gojws.VerifyAndDecodeWithHeader(tokenString, kp)
-	if err != nil {
-		log.Warning("%v", err)
-	}
-	err = json.Unmarshal(data, &payload)
-	return
 }
 
 type Part struct {
@@ -297,7 +188,8 @@ func validateChain(invitation dao.RequestDao, jwss []string) error {
 	parts := make([]Part, 0)
 
 	for idx, jws := range jwss {
-		header, payload, err := parseJws(jws)
+		kp := dbstore.KeyProvider{stor}
+		header, payload, err := utils.ParseJws(jws, kp)
 		if err != nil {
 			log.Warning("Entry %d, fail: %v",
 				idx, err)
@@ -488,7 +380,7 @@ func GetCertificate(c http.ResponseWriter, r *http.Request) {
 
 func Register(rtr *mux.Router, _state *common.State) {
 	state = _state
-	stor = store.NewDBStore(_state)
+	stor = dbstore.NewDBStore(_state)
 	rtr.HandleFunc("/identity/template/",
 		GetInvitationTemplateList).Methods("GET")
 	rtr.HandleFunc("/identity/template/{id:[0-9]+}",
