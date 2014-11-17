@@ -30,19 +30,6 @@ var (
 	stor  store.Store
 )
 
-func jsonify(c http.ResponseWriter, s interface{}) {
-	var encoded []byte
-	if str, ok := s.(string); ok {
-		encoded = []byte(str)
-	} else {
-		encoded, _ = json.MarshalIndent(s, "", "  ")
-	}
-	c.Header().Add("Content-Type", "application/json")
-	c.Header().Add("Content-Length", strconv.Itoa(len(encoded)+1))
-	c.Write(encoded)
-	io.WriteString(c, "\n")
-}
-
 func GetTemplateList(c http.ResponseWriter, r *http.Request) {
 	names, _ := stor.GetTemplateList()
 
@@ -51,7 +38,7 @@ func GetTemplateList(c http.ResponseWriter, r *http.Request) {
 	}{
 		names,
 	}
-	jsonify(c, s)
+	utils.Jsonify(c, s)
 }
 
 func GetTemplate(c http.ResponseWriter, r *http.Request) {
@@ -117,7 +104,7 @@ func CreateRequest(c http.ResponseWriter, r *http.Request) {
 	invitationId := getStringId(id, secret)
 	log.Info("Created invitation %s", invitationId)
 
-	jsonify(c, struct {
+	utils.Jsonify(c, struct {
 		Id    string `json:"id"`
 		Uri   string `json:"url"`
 		Qruri string `json:"qr_url"`
@@ -288,7 +275,7 @@ func UpdateRequest(c http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jsonify(c, struct {
+	utils.Jsonify(c, struct {
 		Hash string `json:"hash"`
 	}{last_hash})
 }
@@ -365,7 +352,7 @@ func AddCertificate(c http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	jsonify(c, struct {
+	utils.Jsonify(c, struct {
 		Certs []CertRet `json:"certs"`
 	}{
 		ret,

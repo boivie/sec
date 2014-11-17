@@ -15,7 +15,10 @@ import (
 	"fmt"
 	"github.com/boivie/gojws"
 	"github.com/op/go-logging"
+	"io"
 	"math/big"
+	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -123,4 +126,17 @@ func LoadJwk(jwk string) (crypto.PublicKey, error) {
 	default:
 		return nil, fmt.Errorf("Unknown JWS key type %s", key.Kty)
 	}
+}
+
+func Jsonify(c http.ResponseWriter, s interface{}) {
+	var encoded []byte
+	if str, ok := s.(string); ok {
+		encoded = []byte(str)
+	} else {
+		encoded, _ = json.MarshalIndent(s, "", "  ")
+	}
+	c.Header().Add("Content-Type", "application/json")
+	c.Header().Add("Content-Length", strconv.Itoa(len(encoded)+1))
+	c.Write(encoded)
+	io.WriteString(c, "\n")
 }
