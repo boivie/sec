@@ -118,7 +118,7 @@ func createOffer(state *common.State, s store.Store, priv *rsa.PrivateKey, cert 
 	fingerprint := utils.GetCertFingerprint(cert)
 
 	type Header struct {
-		Parent string `json:"string"`
+		Parent string `json:"parent"`
 	}
 
 	header := gojws.Header{
