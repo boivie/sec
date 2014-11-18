@@ -3,10 +3,12 @@ package utils
 import (
 	"bytes"
 	"crypto"
+	"crypto/cipher"
 	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base32"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -17,6 +19,7 @@ import (
 	"github.com/op/go-logging"
 	"io"
 	"math/big"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
@@ -139,4 +142,42 @@ func Jsonify(c http.ResponseWriter, s interface{}) {
 	c.Header().Add("Content-Length", strconv.Itoa(len(encoded)+1))
 	c.Write(encoded)
 	io.WriteString(c, "\n")
+}
+
+func GenerateSecret() int64 {
+	return rand.Int63()
+}
+
+func GetStringId(id int64, secret int64, crypt cipher.Block) string {
+	buf := new(bytes.Buffer)
+	binary.Write(buf, binary.LittleEndian, id)
+	binary.Write(buf, binary.LittleEndian, secret)
+	bytes := buf.Bytes()
+
+	encrypted := make([]byte, 16)
+	crypt.Encrypt(encrypted, bytes)
+
+	encoder := base32.StdEncoding
+	return strings.Replace(encoder.EncodeToString(encrypted), "=", "", -1)
+}
+
+func ParseStringId(id string, crypt cipher.Block) (dbId int64, secret int64, err error) {
+	for {
+		if len(id)%8 == 0 {
+			break
+		}
+		id = id + "="
+	}
+	data, err := base32.StdEncoding.DecodeString(id)
+	if err != nil {
+		return
+	}
+	decrypted := make([]byte, 16)
+	crypt.Decrypt(decrypted, data)
+
+	buf := bytes.NewBuffer(decrypted)
+	binary.Read(buf, binary.LittleEndian, &dbId)
+	binary.Read(buf, binary.LittleEndian, &secret)
+
+	return
 }

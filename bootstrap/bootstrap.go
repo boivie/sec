@@ -9,6 +9,8 @@ import (
 	"encoding/pem"
 	"github.com/boivie/gojws"
 	"github.com/boivie/sec/common"
+	"github.com/boivie/sec/dao"
+	"github.com/boivie/sec/store"
 	"github.com/boivie/sec/store/dbstore"
 	"github.com/boivie/sec/utils"
 	"github.com/op/go-logging"
@@ -109,6 +111,49 @@ func signTemplate(tmpl TemplateInput, priv *rsa.PrivateKey, cert *x509.Certifica
 	return
 }
 
+func createOffer(state *common.State, s store.Store, priv *rsa.PrivateKey, cert *x509.Certificate) {
+	secret := utils.GenerateSecret()
+	id, _ := s.CreateRequest(secret)
+	reqId := utils.GetStringId(id, secret, state.IdCrypto)
+	fingerprint := utils.GetCertFingerprint(cert)
+
+	type Header struct {
+		Parent string `json:"string"`
+	}
+
+	header := gojws.Header{
+		Alg: gojws.ALG_RS256,
+		Typ: "create",
+		X5t: fingerprint,
+	}
+	create, _ := json.Marshal(struct {
+		Hdr       Header `json:"header"`
+		RequestId string `json:"request_id"`
+	}{
+		Header{},
+		reqId,
+	})
+	j1, _ := gojws.Sign(header, create, priv)
+
+	header.Typ = "offer"
+	offer, _ := json.Marshal(struct {
+		Hdr      Header   `json:"header"`
+		Template string   `json:"template"`
+		Fields   struct{} `json:"fields"`
+	}{
+		Header{Parent: utils.GetFingerprint([]byte(j1))},
+		"issuer",
+		struct{}{},
+	})
+	j2, _ := gojws.Sign(header, offer, priv)
+
+	update := dao.RequestDao{
+		Payload: j1 + "\n" + j2,
+	}
+	s.UpdateRequest(id, 0, update)
+	log.Info("Created offer at %s", reqId)
+}
+
 func Bootstrap(state *common.State) {
 	s := dbstore.NewDBStore(state)
 	webSubj := pkix.Name{CommonName: "Test Web Cert"}
@@ -139,4 +184,7 @@ func Bootstrap(state *common.State) {
 	}
 	csigned, _ := signTemplate(client, webPriv, webCert)
 	s.StoreTemplate(client.Name, csigned)
+
+	// Create the bootstrap offer
+	createOffer(state, s, webPriv, webCert)
 }

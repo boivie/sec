@@ -1,10 +1,7 @@
 package httpapi
 
 import (
-	"bytes"
 	"crypto/x509"
-	"encoding/base32"
-	"encoding/binary"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -18,7 +15,6 @@ import (
 	"github.com/op/go-logging"
 	"io"
 	"io/ioutil"
-	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
@@ -55,53 +51,15 @@ func GetTemplate(c http.ResponseWriter, r *http.Request) {
 	io.WriteString(c, "\n")
 }
 
-func generateSecret() int64 {
-	return rand.Int63()
-}
-
-func getStringId(id int64, secret int64) string {
-	buf := new(bytes.Buffer)
-	binary.Write(buf, binary.LittleEndian, id)
-	binary.Write(buf, binary.LittleEndian, secret)
-	bytes := buf.Bytes()
-
-	encrypted := make([]byte, 16)
-	state.IdCrypto.Encrypt(encrypted, bytes)
-
-	encoder := base32.StdEncoding
-	return strings.Replace(encoder.EncodeToString(encrypted), "=", "", -1)
-}
-
-func parseInvitationId(id string) (dbId int64, secret int64, err error) {
-	for {
-		if len(id)%8 == 0 {
-			break
-		}
-		id = id + "="
-	}
-	data, err := base32.StdEncoding.DecodeString(id)
-	if err != nil {
-		return
-	}
-	decrypted := make([]byte, 16)
-	state.IdCrypto.Decrypt(decrypted, data)
-
-	buf := bytes.NewBuffer(decrypted)
-	binary.Read(buf, binary.LittleEndian, &dbId)
-	binary.Read(buf, binary.LittleEndian, &secret)
-
-	return
-}
-
 func CreateRequest(c http.ResponseWriter, r *http.Request) {
-	secret := generateSecret()
+	secret := utils.GenerateSecret()
 	id, err := stor.CreateRequest(secret)
 	if err != nil {
 		log.Error("Failed to create request: %v", err)
 		http.Error(c, "internal_error", 500)
 		return
 	}
-	invitationId := getStringId(id, secret)
+	invitationId := utils.GetStringId(id, secret, state.IdCrypto)
 	log.Info("Created invitation %s", invitationId)
 
 	utils.Jsonify(c, struct {
@@ -124,7 +82,7 @@ type Part struct {
 type PartValidator func(invitation dao.RequestDao, parts []Part, idx int) error
 
 func ValidateInvitation(iDao dao.RequestDao, parts []Part, idx int) error {
-	invitationId := getStringId(iDao.Id, iDao.Secret)
+	invitationId := utils.GetStringId(iDao.Id, iDao.Secret, state.IdCrypto)
 	if parts[idx].payload["invitation_id"] != invitationId {
 		log.Warning("Invitation part's invitation id doesn't match")
 		return errors.New("invalid_invitation_id")
@@ -237,7 +195,7 @@ func filterNew(current string, requested string) []string {
 
 func UpdateRequest(c http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-	dbId, secret, err := parseInvitationId(params["id"])
+	dbId, secret, err := utils.ParseStringId(params["id"], state.IdCrypto)
 	if err != nil {
 		log.Info("Invalid id:", err)
 		http.NotFound(c, r)
@@ -282,7 +240,7 @@ func UpdateRequest(c http.ResponseWriter, r *http.Request) {
 
 func GetRequest(c http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-	dbId, secret, err := parseInvitationId(params["id"])
+	dbId, secret, err := utils.ParseStringId(params["id"], state.IdCrypto)
 	if err != nil {
 		log.Info("Invalid id:", err)
 		http.NotFound(c, r)
