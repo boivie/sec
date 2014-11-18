@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
-	"github.com/boivie/gojws"
 	"github.com/boivie/sec/common"
 	"github.com/boivie/sec/dao"
 	"github.com/boivie/sec/store"
@@ -74,24 +73,18 @@ func CreateRequest(c http.ResponseWriter, r *http.Request) {
 	})
 }
 
-type Part struct {
-	header  gojws.Header
-	payload map[string]interface{}
-	hash    string
-}
+type RecordValidator func(invitation dao.RequestDao, records []*common.Record, idx int) error
 
-type PartValidator func(invitation dao.RequestDao, parts []Part, idx int) error
-
-func ValidateInvitation(iDao dao.RequestDao, parts []Part, idx int) error {
+func ValidateInvitation(iDao dao.RequestDao, records []*common.Record, idx int) error {
 	invitationId := utils.GetStringId(iDao.Id, iDao.Secret, state.IdCrypto)
-	if parts[idx].payload["invitation_id"] != invitationId {
-		log.Warning("Invitation part's invitation id doesn't match")
+	if records[idx].Payload["invitation_id"] != invitationId {
+		log.Warning("Invitation record's invitation id doesn't match")
 		return errors.New("invalid_invitation_id")
 	}
 	return nil
 }
 
-var validators = map[string]PartValidator{
+var validators = map[string]RecordValidator{
 	"invitation": ValidateInvitation,
 }
 
@@ -100,25 +93,25 @@ type Header struct {
 	Refs   []string `json:"refs"`
 }
 
-func validateHeaders(parts []Part) bool {
-	hash2part := make(map[string]Part)
-	for _, part := range parts {
-		hash2part[part.hash] = part
+func validateHeaders(records []*common.Record) bool {
+	hash2record := make(map[string]*common.Record)
+	for _, record := range records {
+		hash2record[record.Id] = record
 	}
 
 	var parent string = ""
-	for idx, part := range parts {
-		log.Info("Processing jws %d (type %s, hash %s)",
-			idx, part.header.Typ, part.hash)
+	for idx, record := range records {
+		log.Info("Processing jws %d (type %s, id %s)",
+			idx, record.Header.Typ, record.Id)
 
 		var header Header
-		headerJson, _ := json.Marshal(part.payload["header"])
+		headerJson, _ := json.Marshal(record.Payload["header"])
 		if err := json.Unmarshal(headerJson, &header); err != nil {
 			return false
 		}
 
 		for _, ref := range header.Refs {
-			if _, present := hash2part[ref]; !present {
+			if _, present := hash2record[ref]; !present {
 				log.Warning("Entry %d has ref %s, not found",
 					idx, ref)
 				return false
@@ -138,33 +131,50 @@ func validateHeaders(parts []Part) bool {
 				return false
 			}
 		}
-		parent = part.hash
+		parent = record.Id
 	}
 	return true
 }
 
-func validateChain(invitation dao.RequestDao, jwss []string) error {
-	parts := make([]Part, 0)
-
-	for idx, jws := range jwss {
-		kp := dbstore.KeyProvider{stor}
-		header, payload, err := utils.ParseJws(jws, kp)
-		if err != nil {
-			log.Warning("Entry %d, fail: %v",
-				idx, err)
-			return errors.New("jws_parse_failed")
-		}
-		hash := utils.GetFingerprint([]byte(jws))
-		parts = append(parts, Part{header, payload, hash})
+func parseRecord(kp dbstore.KeyProvider, jws string, new bool) (*common.Record, error) {
+	header, payload, e2 := utils.ParseJws(jws, kp)
+	if e2 != nil {
+		return nil, errors.New("jws_parse_failed")
 	}
+	hash := utils.GetFingerprint([]byte(jws))
+	return &common.Record{hash, header, payload, new}, nil
+}
 
-	if !validateHeaders(parts) {
+func parseRecords(olds, news []string) (records []*common.Record, err error) {
+	records = make([]*common.Record, 0)
+	kp := dbstore.KeyProvider{stor}
+
+	var r *common.Record
+	for _, jws := range olds {
+		r, err = parseRecord(kp, jws, false)
+		if err != nil {
+			return
+		}
+		records = append(records, r)
+	}
+	for _, jws := range news {
+		r, err = parseRecord(kp, jws, true)
+		if err != nil {
+			return
+		}
+		records = append(records, r)
+	}
+	return
+}
+
+func validateRecords(req dao.RequestDao, records []*common.Record) error {
+	if !validateHeaders(records) {
 		return errors.New("invalid_parents")
 	}
 
-	for idx, part := range parts {
-		if validator, ok := validators[part.header.Typ]; ok {
-			if err := validator(invitation, parts, idx); err != nil {
+	for idx, record := range records {
+		if validator, ok := validators[record.Header.Typ]; ok {
+			if err := validator(req, records, idx); err != nil {
 				return err
 			}
 		}
@@ -216,16 +226,21 @@ func UpdateRequest(c http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jwss := append(cleanAndSplit(iDao.Payload),
-		filterNew(iDao.Payload, string(b))...)
+	olds := cleanAndSplit(iDao.Payload)
+	news := filterNew(iDao.Payload, string(b))
 
-	last_hash := utils.GetFingerprint([]byte(jwss[len(jwss)-1]))
-
-	if err = validateChain(iDao, jwss); err != nil {
+	records, err := parseRecords(olds, news)
+	if err != nil {
 		http.Error(c, err.Error(), 400)
 		return
 	}
-	payload := strings.TrimSpace(strings.Join(jwss, "\n"))
+
+	if err := validateRecords(iDao, records); err != nil {
+		http.Error(c, err.Error(), 400)
+		return
+	}
+
+	payload := strings.TrimSpace(strings.Join(append(olds, news...), "\n"))
 
 	update := dao.RequestDao{Version: iDao.Version + 1, Payload: payload}
 	err = stor.UpdateRequest(dbId, iDao.Version, update)
@@ -236,7 +251,7 @@ func UpdateRequest(c http.ResponseWriter, r *http.Request) {
 
 	utils.Jsonify(c, struct {
 		Hash string `json:"hash"`
-	}{last_hash})
+	}{records[len(records)-1].Id})
 }
 
 func GetRequest(c http.ResponseWriter, r *http.Request) {
