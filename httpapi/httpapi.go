@@ -13,6 +13,7 @@ import (
 	"github.com/boivie/sec/utils"
 	"github.com/gorilla/mux"
 	"github.com/op/go-logging"
+	"html/template"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -336,6 +337,23 @@ func GetCertificate(c http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func GetStart(c http.ResponseWriter, r *http.Request) {
+	const START_TMPL = `
+First Install the app<p>
+After that, <a href="/request/{{.RequestId}}">install your first certificate</a>
+`
+	tmpl, err := template.New("start").Parse(START_TMPL)
+	if err != nil {
+		http.Error(c, "internal_error", 500)
+	} else {
+		tmpl.Execute(c, struct {
+			RequestId string
+		}{
+			state.BootstrapRequestId,
+		})
+	}
+}
+
 func Register(rtr *mux.Router, _state *common.State) {
 	state = _state
 	stor = dbstore.NewDBStore(_state)
@@ -355,5 +373,7 @@ func Register(rtr *mux.Router, _state *common.State) {
 		AddCertificate).Methods("POST")
 	rtr.HandleFunc("/cert/{fingerprint:[a-zA-Z0-9_-]+}",
 		GetCertificate).Methods("GET")
+	rtr.HandleFunc("/start",
+		GetStart).Methods("GET")
 
 }

@@ -6,7 +6,8 @@ import (
 )
 
 type State struct {
-	DB       gorm.DB
-	BaseUrl  string
-	IdCrypto cipher.Block
+	DB                 gorm.DB
+	BaseUrl            string
+	IdCrypto           cipher.Block
+	BootstrapRequestId string
 }
