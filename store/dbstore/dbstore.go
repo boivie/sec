@@ -41,9 +41,11 @@ func (sk KeyProvider) GetJWSKey(h gojws.Header) (key crypto.PublicKey, err error
 }
 
 func (dbs DBStore) CreateRequest(secret int64) (id int64, err error) {
+	now := time.Now()
 	iDao := dao.RequestDao{
-		Secret:    secret,
-		CreatedAt: time.Now()}
+		Secret:     secret,
+		CreatedAt:  now,
+		ModifiedAt: now}
 	dbs.state.DB.Create(&iDao)
 	id = iDao.Id
 	return
@@ -61,6 +63,7 @@ func (dbs DBStore) GetRequest(id int64) (obj dao.RequestDao, err error) {
 }
 
 func (dbs DBStore) UpdateRequest(id int64, version int32, update dao.RequestDao) (err error) {
+	update.ModifiedAt = time.Now()
 	count := dbs.state.DB.Table("requests").Where("id = ? AND version = ?", id, version).Updates(update).RowsAffected
 	if count != 1 {
 		err = errors.New("old_version")
