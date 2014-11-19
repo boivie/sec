@@ -49,13 +49,11 @@ func (dbs DBStore) CreateRequest(secret int64) (id int64, err error) {
 	return
 }
 
-func (dbs DBStore) GetRequest(id int64, secret int64) (obj dao.RequestDao, err error) {
+func (dbs DBStore) GetRequest(id int64) (obj dao.RequestDao, err error) {
 	var iDao dao.RequestDao
 	dbs.state.DB.First(&iDao, id)
 	if iDao.Id == 0 {
 		err = errors.New("Not found")
-	} else if iDao.Secret != secret {
-		err = errors.New("Bad secret")
 	} else {
 		obj = iDao
 	}

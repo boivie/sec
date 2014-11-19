@@ -111,10 +111,10 @@ func signTemplate(tmpl TemplateInput, priv *rsa.PrivateKey, cert *x509.Certifica
 	return
 }
 
-func createOffer(state *common.State, s store.Store, priv *rsa.PrivateKey, cert *x509.Certificate) (requestId string) {
+func createOffer(state *common.State, s store.Store, priv *rsa.PrivateKey, cert *x509.Certificate) (requestId int64) {
 	secret := utils.GenerateSecret()
-	id, _ := s.CreateRequest(secret)
-	requestId = utils.GetStringId(id, secret, state.IdCrypto)
+	requestId, _ = s.CreateRequest(secret)
+	requestStringId := utils.GetStringId(requestId, secret, state.IdCrypto)
 	fingerprint := utils.GetCertFingerprint(cert)
 
 	type Header struct {
@@ -131,7 +131,7 @@ func createOffer(state *common.State, s store.Store, priv *rsa.PrivateKey, cert 
 		RequestId string `json:"request_id"`
 	}{
 		Header{},
-		requestId,
+		requestStringId,
 	})
 	j1, _ := gojws.Sign(header, create, priv)
 
@@ -149,9 +149,10 @@ func createOffer(state *common.State, s store.Store, priv *rsa.PrivateKey, cert 
 
 	update := dao.RequestDao{
 		Payload: j1 + "\n" + j2,
+		Version: 1,
 	}
-	s.UpdateRequest(id, 0, update)
-	log.Info("Created offer at %s", requestId)
+	s.UpdateRequest(requestId, 0, update)
+	log.Info("Created offer at %s", requestStringId)
 
 	return
 }
@@ -189,4 +190,8 @@ func Bootstrap(state *common.State) {
 
 	// Create the bootstrap offer
 	state.BootstrapRequestId = createOffer(state, s, webPriv, webCert)
+	state.WebKey = webPriv
+	state.WebCert = webCert
+	state.IssueKey = issuerPriv
+	state.IssueCert = issuerCert
 }

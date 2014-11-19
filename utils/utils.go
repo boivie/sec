@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/boivie/gojws"
+	"github.com/boivie/sec/common"
 	"github.com/op/go-logging"
 	"io"
 	"math/big"
@@ -179,5 +180,42 @@ func ParseStringId(id string, crypt cipher.Block) (dbId int64, secret int64, err
 	binary.Read(buf, binary.LittleEndian, &dbId)
 	binary.Read(buf, binary.LittleEndian, &secret)
 
+	return
+}
+
+func HasRecord(records []*common.Record, typ string) bool {
+	_, err := GetFirstRecord(records, typ)
+	return err == nil
+}
+
+func GetFirstRecord(records []*common.Record, typ string) (record *common.Record, err error) {
+	for _, r := range records {
+		if r.Header.Typ == typ {
+			return r, nil
+		}
+	}
+	return nil, errors.New("Not found")
+}
+
+func ParseRecord(kp gojws.KeyProvider, jws string) (*common.Record, error) {
+	header, payload, e2 := ParseJws(jws, kp)
+	if e2 != nil {
+		return nil, errors.New("jws_parse_failed")
+	}
+	hash := GetFingerprint([]byte(jws))
+	return &common.Record{hash, header, payload}, nil
+}
+
+func ParseRecords(kp gojws.KeyProvider, jwss []string) (records []*common.Record, err error) {
+	records = make([]*common.Record, 0)
+
+	var r *common.Record
+	for _, jws := range jwss {
+		r, err = ParseRecord(kp, jws)
+		if err != nil {
+			return
+		}
+		records = append(records, r)
+	}
 	return
 }

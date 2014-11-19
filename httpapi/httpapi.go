@@ -21,9 +21,10 @@ import (
 )
 
 var (
-	log   = logging.MustGetLogger("sec")
-	state *common.State
-	stor  store.Store
+	log            = logging.MustGetLogger("sec")
+	state          *common.State
+	stor           store.Store
+	certSignerChan chan common.RequestUpdated
 )
 
 func GetTemplateList(c http.ResponseWriter, r *http.Request) {
@@ -136,37 +137,6 @@ func validateHeaders(records []*common.Record) bool {
 	return true
 }
 
-func parseRecord(kp dbstore.KeyProvider, jws string, new bool) (*common.Record, error) {
-	header, payload, e2 := utils.ParseJws(jws, kp)
-	if e2 != nil {
-		return nil, errors.New("jws_parse_failed")
-	}
-	hash := utils.GetFingerprint([]byte(jws))
-	return &common.Record{hash, header, payload, new}, nil
-}
-
-func parseRecords(olds, news []string) (records []*common.Record, err error) {
-	records = make([]*common.Record, 0)
-	kp := dbstore.KeyProvider{stor}
-
-	var r *common.Record
-	for _, jws := range olds {
-		r, err = parseRecord(kp, jws, false)
-		if err != nil {
-			return
-		}
-		records = append(records, r)
-	}
-	for _, jws := range news {
-		r, err = parseRecord(kp, jws, true)
-		if err != nil {
-			return
-		}
-		records = append(records, r)
-	}
-	return
-}
-
 func validateRecords(req dao.RequestDao, records []*common.Record) error {
 	if !validateHeaders(records) {
 		return errors.New("invalid_parents")
@@ -219,23 +189,36 @@ func UpdateRequest(c http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	iDao, err := stor.GetRequest(dbId, secret)
+	iDao, err := stor.GetRequest(dbId)
 	if err != nil {
 		log.Warning("UpdateRequest(%s) -> %v", params["id"], err)
+		http.NotFound(c, r)
+		return
+	} else if iDao.Secret != secret {
+		log.Warning("UpdateRequest(%s) -> wrong secret")
 		http.NotFound(c, r)
 		return
 	}
 
 	olds := cleanAndSplit(iDao.Payload)
 	news := filterNew(iDao.Payload, string(b))
+	kp := dbstore.KeyProvider{stor}
 
-	records, err := parseRecords(olds, news)
+	orecords, err := utils.ParseRecords(kp, olds)
 	if err != nil {
 		http.Error(c, err.Error(), 400)
 		return
 	}
+	nrecords, err := utils.ParseRecords(kp, news)
+	if err != nil {
+		http.Error(c, err.Error(), 400)
+		return
+	}
+	arecords := make([]*common.Record, len(orecords)+len(nrecords))
+	copy(arecords, orecords)
+	copy(arecords[len(orecords):], nrecords)
 
-	if err := validateRecords(iDao, records); err != nil {
+	if err := validateRecords(iDao, arecords); err != nil {
 		http.Error(c, err.Error(), 400)
 		return
 	}
@@ -249,9 +232,17 @@ func UpdateRequest(c http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	event := common.RequestUpdated{
+		dbId,
+		params["id"],
+		orecords,
+		nrecords,
+	}
+	certSignerChan <- event
+
 	utils.Jsonify(c, struct {
 		Hash string `json:"hash"`
-	}{records[len(records)-1].Id})
+	}{arecords[len(arecords)-1].Id})
 }
 
 func GetRequest(c http.ResponseWriter, r *http.Request) {
@@ -261,9 +252,14 @@ func GetRequest(c http.ResponseWriter, r *http.Request) {
 		log.Info("Invalid id:", err)
 		http.NotFound(c, r)
 	} else {
-		obj, err := stor.GetRequest(dbId, secret)
+		obj, err := stor.GetRequest(dbId)
 		if err != nil {
 			log.Warning("GetRequest(%s) -> %v", params["id"], err)
+			return
+		} else if obj.Secret != secret {
+			log.Info("Invalid id:", err)
+			http.NotFound(c, r)
+			return
 		}
 		io.WriteString(c, obj.Payload)
 		io.WriteString(c, "\n")
@@ -357,6 +353,10 @@ func GetStart(c http.ResponseWriter, r *http.Request) {
 First Install the app<p>
 After that, <a href="/request/{{.RequestId}}">install your first certificate</a>
 `
+	req, err := stor.GetRequest(state.BootstrapRequestId)
+	if err != nil {
+		http.Error(c, "internal_error", 500)
+	}
 	tmpl, err := template.New("start").Parse(START_TMPL)
 	if err != nil {
 		http.Error(c, "internal_error", 500)
@@ -364,12 +364,13 @@ After that, <a href="/request/{{.RequestId}}">install your first certificate</a>
 		tmpl.Execute(c, struct {
 			RequestId string
 		}{
-			state.BootstrapRequestId,
+			utils.GetStringId(req.Id, req.Secret, state.IdCrypto),
 		})
 	}
 }
 
-func Register(rtr *mux.Router, _state *common.State) {
+func Register(rtr *mux.Router, _state *common.State, csc chan common.RequestUpdated) {
+	certSignerChan = csc
 	state = _state
 	stor = dbstore.NewDBStore(_state)
 	rtr.HandleFunc("/template/",

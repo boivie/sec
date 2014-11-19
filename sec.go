@@ -2,22 +2,33 @@ package main
 
 import (
 	"crypto/aes"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/boivie/gojws"
 	"github.com/boivie/sec/bootstrap"
 	"github.com/boivie/sec/common"
 	"github.com/boivie/sec/dao"
 	"github.com/boivie/sec/httpapi"
+	"github.com/boivie/sec/store"
+	"github.com/boivie/sec/store/dbstore"
+	"github.com/boivie/sec/utils"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
 	"github.com/jinzhu/gorm"
 	"github.com/op/go-logging"
+	"math/big"
 	"net/http"
 	"os"
 	"os/signal"
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 )
 
 var log = logging.MustGetLogger("sec")
@@ -47,12 +58,96 @@ func signalHandler() {
 	}
 }
 
-func httpServer(port int16, state *common.State) {
+func httpServer(port int16, state *common.State, csc chan common.RequestUpdated) {
 	rtr := mux.NewRouter()
-	httpapi.Register(rtr, state)
+	httpapi.Register(rtr, state, csc)
 	http.Handle("/", rtr)
 	log.Info("HTTP server running on port %d\n", port)
 	http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
+}
+
+func addCert(state *common.State, stor store.Store, req dao.RequestDao, records []*common.Record, der []byte) {
+	type Header struct {
+		Parent string   `json:"parent"`
+		Refs   []string `json:"refs"`
+	}
+
+	header := gojws.Header{
+		Alg: gojws.ALG_RS256,
+		Typ: "cert",
+		X5t: utils.GetCertFingerprint(state.WebCert),
+	}
+	certDers := []string{base64.StdEncoding.EncodeToString(der)}
+
+	payload, _ := json.Marshal(struct {
+		Hdr      Header   `json:"header"`
+		CertDers []string `json:"certs"`
+	}{
+		Header{Parent: records[len(records)-1].Id},
+		certDers,
+	})
+	jws, _ := gojws.Sign(header, payload, state.WebKey)
+
+	update := dao.RequestDao{
+		Payload: req.Payload + "\n" + jws,
+		Version: req.Version + 1,
+	}
+	stor.UpdateRequest(req.Id, req.Version, update)
+	log.Info("Added cert to %d", req.Id)
+}
+
+func generateCert(state *common.State, id int64) (err error) {
+	stor := dbstore.NewDBStore(state)
+	req, _ := stor.GetRequest(id)
+	kp := dbstore.KeyProvider{stor}
+	records, err := utils.ParseRecords(kp, strings.Split(req.Payload, "\n"))
+	if err != nil {
+		return
+	}
+	if !utils.HasRecord(records, "claim") || utils.HasRecord(records, "cert") {
+		return
+	}
+	// Sign the first claim.
+	claim, _ := utils.GetFirstRecord(records, "claim")
+	pubKey, err := utils.LoadJwk(claim.Header.Jwk)
+	if err != nil {
+		return
+	}
+	notBefore := time.Now()
+	notAfter := notBefore.Add(2 * 365 * 24 * time.Hour)
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	if err != nil {
+		return
+	}
+	subject := pkix.Name{CommonName: "Test Cert"}
+	template := x509.Certificate{
+		SerialNumber:          serialNumber,
+		Subject:               subject,
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+		IsCA: false,
+	}
+	certDer, err := x509.CreateCertificate(rand.Reader, &template, state.IssueCert, pubKey, state.IssueKey)
+	if err != nil {
+		return
+	}
+	addCert(state, stor, req, records, certDer)
+
+	return
+}
+
+func certSigner(state *common.State, csc chan common.RequestUpdated) {
+	for {
+		select {
+		case c := <-csc:
+			if c.Id == state.BootstrapRequestId {
+				generateCert(state, c.Id)
+			}
+		}
+	}
 }
 
 func getHostname() string {
@@ -105,7 +200,9 @@ func main() {
 	// bootstrap!
 	bootstrap.Bootstrap(&state)
 
-	go httpServer(8989, &state)
+	certSignerChan := make(chan common.RequestUpdated, 10)
+	go certSigner(&state, certSignerChan)
+	go httpServer(8989, &state, certSignerChan)
 
 	log.Info("Ready to handle incoming connections")
 
