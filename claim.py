@@ -18,6 +18,14 @@ def b64_encode(source):
     return str(encoded.decode('ascii'))
 
 
+def b64_decode(source):
+    missing_padding = 4 - len(source) % 4
+    if missing_padding:
+        source += b'=' * missing_padding
+    decoded = base64.urlsafe_b64decode(source)
+    return decoded
+
+
 def base64_bigint(source):
     result_reversed = []
     while source:
@@ -35,13 +43,14 @@ class bcolors:
     RED = '\033[91m'
     ENDC = '\033[0m'
 
-offer_url = sys.argv[1]
-private_key_fname = sys.argv[2]
+private_key_fname = sys.argv[1]
+offer_url = sys.argv[2]
 priv = rsa.importKey(open(private_key_fname))
 
 r = requests.get(offer_url)
 lines = [bytes(l) for l in r.text.strip().splitlines()]
 last_offer = None
+last_cert = None
 last_record_id = None
 for line in lines:
     last_record_id = b64_encode(hashlib.sha256(line.strip()).digest())
@@ -50,30 +59,49 @@ for line in lines:
     header = jws.utils.decode(header)
     if header["typ"] == "offer":
         last_offer = (last_record_id, payload)
+    if header["typ"] == "cert":
+        last_cert = (last_record_id, payload)
     if header["typ"] == "close":
         print("This request is already closed")
         sys.exit(1)
 
-if not last_offer:
-    print("No offer found")
-    sys.exit(1)
+if last_cert:
+    payload = json.loads(b64_decode(payload))
+    cert_der = base64.b64decode(payload["certs"][0])
+    fingerprint = b64_encode(hashlib.sha1(cert_der).digest())
+    jws_header  = {'alg': 'RS256', 'typ': "accept",
+                   'x5t': fingerprint}
+    h2 = OrderedDict([('parent', last_record_id),
+                      ('refs', [last_cert[0]])])
+    o2 = OrderedDict([('header', h2)])
+    signature = jws.sign(jws_header, o2, priv)
+    part1 = jws._signing_input(jws_header, o2)
+    signed = part1 + "." + signature
+    r = requests.post(offer_url, data=signed)
+    if r.status_code != 200:
+        print("Failed to accept cert")
+        sys.exit(1)
 
-jwk = {"kty": "RSA",
-       "n": base64_bigint(priv.n),
-       "e": base64_bigint(priv.e)}
-jws_header  = {'alg': 'RS256', 'typ': "claim",
-               'jwk': json.dumps(jwk)}
+elif last_offer:
+    jwk = {"kty": "RSA",
+           "n": base64_bigint(priv.n),
+           "e": base64_bigint(priv.e)}
+    jws_header  = {'alg': 'RS256', 'typ': "claim",
+                   'jwk': json.dumps(jwk)}
 
-h2 = OrderedDict([('parent', last_record_id),
-                  ('refs', [last_offer[0]])])
-o2 = OrderedDict([('header', h2),
-                  ('fields', {})])
-signature = jws.sign(jws_header, o2, priv)
-part1 = jws._signing_input(jws_header, o2)
+    h2 = OrderedDict([('parent', last_record_id),
+                      ('refs', [last_offer[0]])])
+    o2 = OrderedDict([('header', h2),
+                      ('fields', {})])
+    signature = jws.sign(jws_header, o2, priv)
+    part1 = jws._signing_input(jws_header, o2)
 
-signed = part1 + "." + signature
+    signed = part1 + "." + signature
 
-r = requests.post(offer_url, data=signed)
-if r.status_code != 200:
-    print("Failed to claim offer")
+    r = requests.post(offer_url, data=signed)
+    if r.status_code != 200:
+        print("Failed to claim offer")
+        sys.exit(1)
+else:
+    print("No offer or cert found")
     sys.exit(1)
