@@ -40,7 +40,7 @@ type CertDao struct {
 	CreatedAt   time.Time
 	NotBefore   time.Time
 	NotAfter    time.Time
-	Pem         string `sql:"type:text"`
+	Der         string `sql:"type:text"`
 }
 
 func (t TemplateDao) TableName() string {

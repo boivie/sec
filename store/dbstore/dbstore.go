@@ -3,7 +3,7 @@ package dbstore
 import (
 	"crypto"
 	"crypto/x509"
-	"encoding/pem"
+	"encoding/base64"
 	"errors"
 	"github.com/boivie/gojws"
 	"github.com/boivie/sec/common"
@@ -75,11 +75,8 @@ func (dbs DBStore) LoadCert(fingerprint string) (*store.CertInfo, error) {
 		log.Warning("Key not found: %s", fingerprint)
 		return nil, errors.New("Key not found")
 	}
-	block, _ := pem.Decode([]byte(cdao.Pem))
-	if block == nil {
-		return nil, errors.New("Invalid PEM")
-	}
-	cert, err := x509.ParseCertificate(block.Bytes)
+	der, _ := base64.StdEncoding.DecodeString(cdao.Der)
+	cert, err := x509.ParseCertificate(der)
 	if err != nil {
 		return nil, errors.New("Failed to parse certificate")
 	}
@@ -98,17 +95,15 @@ func (dbs DBStore) StoreCert(cert *x509.Certificate) (err error) {
 		return
 	}
 
-	bytes, err := utils.GetCertPem(cert.Raw)
-	if err == nil {
-		d = dao.CertDao{
-			Fingerprint: fingerprint,
-			Pem:         string(bytes),
-			NotBefore:   cert.NotBefore,
-			NotAfter:    cert.NotAfter,
-		}
-		dbs.state.DB.Create(&d)
-		log.Info("Added cert %d with fingerprint: %s", d.Id, fingerprint)
+	der := base64.StdEncoding.EncodeToString(cert.Raw)
+	d = dao.CertDao{
+		Fingerprint: fingerprint,
+		Der:         der,
+		NotBefore:   cert.NotBefore,
+		NotAfter:    cert.NotAfter,
 	}
+	dbs.state.DB.Create(&d)
+	log.Info("Added cert %d with fingerprint: %s", d.Id, fingerprint)
 	return
 }
 
