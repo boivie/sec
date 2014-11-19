@@ -66,7 +66,7 @@ func httpServer(port int16, state *common.State, csc chan common.RequestUpdated)
 	http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 }
 
-func addCert(state *common.State, stor store.Store, req dao.RequestDao, records []*common.Record, der []byte) {
+func addCert(state *common.State, stor store.Store, req dao.RequestDao, records []*common.Record, der []byte, issuer []byte) {
 	type Header struct {
 		Parent string   `json:"parent"`
 		Refs   []string `json:"refs"`
@@ -77,7 +77,11 @@ func addCert(state *common.State, stor store.Store, req dao.RequestDao, records 
 		Typ: "cert",
 		X5t: utils.GetCertFingerprint(state.WebCert),
 	}
-	certDers := []string{base64.StdEncoding.EncodeToString(der)}
+
+	certDers := []string{
+		base64.StdEncoding.EncodeToString(der),
+		base64.StdEncoding.EncodeToString(issuer),
+	}
 
 	payload, _ := json.Marshal(struct {
 		Hdr      Header   `json:"header"`
@@ -134,7 +138,7 @@ func generateCert(state *common.State, id int64) (err error) {
 	if err != nil {
 		return
 	}
-	addCert(state, stor, req, records, certDer)
+	addCert(state, stor, req, records, certDer, state.IssueCert.Raw)
 
 	return
 }
