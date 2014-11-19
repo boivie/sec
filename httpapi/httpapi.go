@@ -281,7 +281,7 @@ func addPem(ascii string) (fingerprint string, err error) {
 	}
 
 	fingerprint = utils.GetCertFingerprint(cert)
-	err = stor.StoreCert(cert)
+	_, err = stor.StoreCert(cert)
 	return
 }
 

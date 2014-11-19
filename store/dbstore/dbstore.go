@@ -87,7 +87,7 @@ func (dbs DBStore) LoadCert(fingerprint string) (*store.CertInfo, error) {
 	return &store.CertInfo{cdao.Id, cdao.Parent, cdao.Fingerprint, cert}, nil
 }
 
-func (dbs DBStore) StoreCert(cert *x509.Certificate) (err error) {
+func (dbs DBStore) StoreCert(cert *x509.Certificate) (id int64, err error) {
 	fingerprint := utils.GetCertFingerprint(cert)
 
 	var d dao.CertDao
@@ -95,19 +95,18 @@ func (dbs DBStore) StoreCert(cert *x509.Certificate) (err error) {
 	if d.Id != 0 {
 		log.Info("Cert %d with fingerprint %s already existed",
 			d.Id, fingerprint)
-		return
+	} else {
+		der := base64.StdEncoding.EncodeToString(cert.Raw)
+		d = dao.CertDao{
+			Fingerprint: fingerprint,
+			Der:         der,
+			NotBefore:   cert.NotBefore,
+			NotAfter:    cert.NotAfter,
+		}
+		dbs.state.DB.Create(&d)
+		log.Info("Added cert %d with fingerprint: %s", d.Id, fingerprint)
 	}
-
-	der := base64.StdEncoding.EncodeToString(cert.Raw)
-	d = dao.CertDao{
-		Fingerprint: fingerprint,
-		Der:         der,
-		NotBefore:   cert.NotBefore,
-		NotAfter:    cert.NotAfter,
-	}
-	dbs.state.DB.Create(&d)
-	log.Info("Added cert %d with fingerprint: %s", d.Id, fingerprint)
-	return
+	return d.Id, nil
 }
 
 func (dbs DBStore) StoreTemplate(name string, payload string) (err error) {
