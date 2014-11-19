@@ -5,8 +5,15 @@ import (
 	"github.com/boivie/sec/dao"
 )
 
+type CertInfo struct {
+	Id          int64
+	Parent      int64
+	Fingerprint string
+	Cert        *x509.Certificate
+}
+
 type Store interface {
-	LoadCert(fingerprint string) (*x509.Certificate, error)
+	LoadCert(fingerprint string) (*CertInfo, error)
 	StoreCert(cert *x509.Certificate) error
 	CreateRequest(secret int64) (id int64, err error)
 	GetRequest(id int64) (obj dao.RequestDao, err error)

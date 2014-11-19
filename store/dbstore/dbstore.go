@@ -30,7 +30,7 @@ func (sk KeyProvider) GetJWSKey(h gojws.Header) (key crypto.PublicKey, err error
 	if h.X5t != "" {
 		cert, err := sk.Stor.LoadCert(h.X5t)
 		if err == nil {
-			key = cert.PublicKey
+			key = cert.Cert.PublicKey
 		}
 	} else if h.Jwk != "" {
 		key, err = utils.LoadJwk(h.Jwk)
@@ -68,7 +68,7 @@ func (dbs DBStore) UpdateRequest(id int64, version int32, update dao.RequestDao)
 	return
 }
 
-func (dbs DBStore) LoadCert(fingerprint string) (cert *x509.Certificate, err error) {
+func (dbs DBStore) LoadCert(fingerprint string) (*store.CertInfo, error) {
 	var cdao dao.CertDao
 	dbs.state.DB.Where("fingerprint = ?", fingerprint).First(&cdao)
 	if cdao.Id == 0 {
@@ -79,12 +79,12 @@ func (dbs DBStore) LoadCert(fingerprint string) (cert *x509.Certificate, err err
 	if block == nil {
 		return nil, errors.New("Invalid PEM")
 	}
-	cert, err = x509.ParseCertificate(block.Bytes)
+	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return nil, errors.New("Failed to parse certificate")
 	}
 
-	return cert, nil
+	return &store.CertInfo{cdao.Id, cdao.Parent, cdao.Fingerprint, cert}, nil
 }
 
 func (dbs DBStore) StoreCert(cert *x509.Certificate) (err error) {

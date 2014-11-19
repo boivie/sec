@@ -337,7 +337,7 @@ func GetCertificate(c http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.NotFound(c, r)
 	} else {
-		pemString, err := utils.GetCertPem(cert.Raw)
+		pemString, err := utils.GetCertPem(cert.Cert.Raw)
 		if err != nil {
 			log.Error("Failed to parse cert: %v", err)
 			http.Error(c, "internal_error", 500)
