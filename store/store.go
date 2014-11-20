@@ -14,7 +14,8 @@ type CertInfo struct {
 
 type Store interface {
 	LoadCert(fingerprint string) (*CertInfo, error)
-	StoreCert(cert *x509.Certificate) (id int64, err error)
+	StoreCert(cert *x509.Certificate, parent int64) (id int64, err error)
+
 	CreateRequest(secret int64) (id int64, err error)
 	GetRequest(id int64) (obj dao.RequestDao, err error)
 	UpdateRequest(id int64, oldVersion int32, update dao.RequestDao) (err error)

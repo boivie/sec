@@ -87,7 +87,7 @@ func (dbs DBStore) LoadCert(fingerprint string) (*store.CertInfo, error) {
 	return &store.CertInfo{cdao.Id, cdao.Parent, cdao.Fingerprint, cert}, nil
 }
 
-func (dbs DBStore) StoreCert(cert *x509.Certificate) (id int64, err error) {
+func (dbs DBStore) StoreCert(cert *x509.Certificate, parent int64) (id int64, err error) {
 	fingerprint := utils.GetCertFingerprint(cert)
 
 	var d dao.CertDao
@@ -102,8 +102,12 @@ func (dbs DBStore) StoreCert(cert *x509.Certificate) (id int64, err error) {
 			Der:         der,
 			NotBefore:   cert.NotBefore,
 			NotAfter:    cert.NotAfter,
+			Parent:      parent,
 		}
-		dbs.state.DB.Create(&d)
+		r := dbs.state.DB.Create(&d)
+		if parent == 0 {
+			r.Update("parent", d.Id)
+		}
 		log.Info("Added cert %d with fingerprint: %s", d.Id, fingerprint)
 	}
 	return d.Id, nil

@@ -139,7 +139,8 @@ func generateCert(state *common.State, id int64) (err error) {
 		return
 	}
 	cert, _ := x509.ParseCertificate(certDer)
-	stor.StoreCert(cert)
+	issuerId, _ := stor.StoreCert(state.IssueCert, 0)
+	stor.StoreCert(cert, issuerId)
 
 	addCert(state, stor, req, records, certDer, state.IssueCert.Raw)
 

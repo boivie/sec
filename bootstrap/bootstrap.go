@@ -163,13 +163,13 @@ func Bootstrap(state *common.State) {
 	webPriv, webCert := generateKeyAndCert(webSubj)
 	writeKey(webPriv, "web.key")
 	writeCert(webCert, "web.crt")
-	s.StoreCert(webCert)
+	s.StoreCert(webCert, 0)
 
 	issuerSubj := pkix.Name{CommonName: "Test Issuer"}
 	issuerPriv, issuerCert := generateKeyAndCert(issuerSubj)
 	writeKey(issuerPriv, "issuer.key")
 	writeCert(issuerCert, "issuer.crt")
-	s.StoreCert(issuerCert)
+	s.StoreCert(issuerCert, 0)
 
 	// Add the two templates:
 	issuer := TemplateInput{

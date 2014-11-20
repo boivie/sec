@@ -1,9 +1,10 @@
 package httpapi
 
 import (
+	"bufio"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"github.com/boivie/sec/common"
 	"github.com/boivie/sec/dao"
@@ -266,67 +267,63 @@ func GetRequest(c http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func addPem(ascii string) (fingerprint string, err error) {
-	block, _ := pem.Decode([]byte(ascii))
-	if block == nil {
-		log.Warning("Invalid PEM")
-		err = errors.New("invalid_pem")
-		return
-	}
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		log.Warning("Failed to parse PEM: %s", err)
-		err = errors.New("invalid_pem")
-		return
-	}
+func parseCerts(r io.Reader) (certs []*x509.Certificate, err error) {
+	certs = make([]*x509.Certificate, 0)
+	scanner := bufio.NewScanner(r)
+	var certDer []byte
+	var cert *x509.Certificate
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
 
-	fingerprint = utils.GetCertFingerprint(cert)
-	_, err = stor.StoreCert(cert)
+		certDer, err = base64.StdEncoding.DecodeString(line)
+		if err != nil {
+			return
+		}
+		cert, err = x509.ParseCertificate(certDer)
+		if err != nil {
+			return
+		}
+		certs = append(certs, cert)
+	}
 	return
 }
 
+// Input should be several lines, with one cert per line. The leaf cert
+// comes first, then any intermediate and last the root.
 func AddCertificate(c http.ResponseWriter, r *http.Request) {
-	type CertRet struct {
-		Fingerprint string `json:"fingerprint"`
-		Url         string `json:"url"`
-	}
-	ret := make([]CertRet, 0)
-
-	b, err := ioutil.ReadAll(r.Body)
+	var err error
+	certs, err := parseCerts(r.Body)
 	if err != nil {
-		log.Info("Invalid cert:", err)
-		http.NotFound(c, r)
-		return
+		log.Warning("Failed to parse cert: %v", err)
+		http.Error(c, err.Error(), 400)
 	}
-	var lines = make([]string, 0)
-	var capturing = false
-	for _, line := range strings.Split(string(b), "\n") {
-		if strings.HasPrefix(line, "-----BEGIN CERTIFICATE-----") {
-			capturing = true
-			lines = make([]string, 0)
+
+	for i := 0; i < len(certs); i++ {
+		if i == (len(certs) - 1) {
+			// Require self-signed
+			err = certs[i].CheckSignatureFrom(certs[i])
+		} else {
+			err = certs[i].CheckSignatureFrom(certs[i+1])
 		}
-		if capturing {
-			lines = append(lines, line)
-			if strings.HasPrefix(line, "-----END CERTIFICATE-----") {
-				pem := strings.TrimSpace(strings.Join(lines, "\n"))
-				fingerprint, err := addPem(pem)
-				if err != nil {
-					http.Error(c, err.Error(), 400)
-					return
-				}
-				ret = append(ret, CertRet{
-					fingerprint,
-					state.BaseUrl + "/cert/" + fingerprint,
-				})
-				capturing = false
-			}
+		if err != nil {
+			log.Warning("Certificate chain failed: %v", err)
+			http.Error(c, err.Error(), 400)
 		}
 	}
-	utils.Jsonify(c, struct {
-		Certs []CertRet `json:"certs"`
-	}{
-		ret,
-	})
+
+	var parent int64 = 0
+	for i := len(certs) - 1; i >= 0; i-- {
+		parent, err = stor.StoreCert(certs[i], parent)
+		if err != nil {
+			log.Warning("Failed to store cert: %v", err)
+			http.Error(c, err.Error(), 400)
+		}
+	}
+
+	utils.Jsonify(c, struct{}{})
 }
 
 func GetCertificate(c http.ResponseWriter, r *http.Request) {
