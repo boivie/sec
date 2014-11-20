@@ -86,6 +86,21 @@ func (dbs DBStore) LoadCert(fingerprint string) (*store.CertInfo, error) {
 
 	return &store.CertInfo{cdao.Id, cdao.Parent, cdao.Fingerprint, cert}, nil
 }
+func (dbs DBStore) LoadCertById(id int64) (*store.CertInfo, error) {
+	var cdao dao.CertDao
+	dbs.state.DB.First(&cdao, id)
+	if cdao.Id == 0 {
+		log.Warning("Key not found: %d", id)
+		return nil, errors.New("Key not found")
+	}
+	der, _ := base64.StdEncoding.DecodeString(cdao.Der)
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		return nil, errors.New("Failed to parse certificate")
+	}
+
+	return &store.CertInfo{cdao.Id, cdao.Parent, cdao.Fingerprint, cert}, nil
+}
 
 func (dbs DBStore) StoreCert(cert *x509.Certificate, parent int64) (id int64, err error) {
 	fingerprint := utils.GetCertFingerprint(cert)

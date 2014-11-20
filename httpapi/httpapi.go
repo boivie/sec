@@ -326,6 +326,32 @@ func AddCertificate(c http.ResponseWriter, r *http.Request) {
 	utils.Jsonify(c, struct{}{})
 }
 
+func GetCertificateChain(c http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	fingerprint := params["fingerprint"]
+
+	firstCert, err := stor.LoadCert(fingerprint)
+	if err != nil {
+		http.NotFound(c, r)
+		return
+	}
+
+	var id int64 = firstCert.Id
+	for {
+		cert, err := stor.LoadCertById(id)
+		if err != nil {
+			return
+		}
+		certDerB64 := base64.StdEncoding.EncodeToString(cert.Cert.Raw)
+		io.WriteString(c, certDerB64)
+		io.WriteString(c, "\n")
+		if cert.Parent == 0 || cert.Parent == cert.Id {
+			break
+		}
+		id = cert.Parent
+	}
+}
+
 func GetCertificate(c http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	fingerprint := params["fingerprint"]
@@ -334,14 +360,9 @@ func GetCertificate(c http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.NotFound(c, r)
 	} else {
-		pemString, err := utils.GetCertPem(cert.Cert.Raw)
-		if err != nil {
-			log.Error("Failed to parse cert: %v", err)
-			http.Error(c, "internal_error", 500)
-		} else {
-			io.WriteString(c, pemString)
-			io.WriteString(c, "\n")
-		}
+		certDerB64 := base64.StdEncoding.EncodeToString(cert.Cert.Raw)
+		io.WriteString(c, certDerB64)
+		io.WriteString(c, "\n")
 	}
 }
 
@@ -386,6 +407,8 @@ func Register(rtr *mux.Router, _state *common.State, csc chan common.RequestUpda
 		AddCertificate).Methods("POST")
 	rtr.HandleFunc("/cert/{fingerprint:[a-zA-Z0-9_-]+}",
 		GetCertificate).Methods("GET")
+	rtr.HandleFunc("/cert/{fingerprint:[a-zA-Z0-9_-]+}/chain",
+		GetCertificateChain).Methods("GET")
 	rtr.HandleFunc("/start",
 		GetStart).Methods("GET")
 

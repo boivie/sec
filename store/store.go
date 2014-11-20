@@ -14,6 +14,7 @@ type CertInfo struct {
 
 type Store interface {
 	LoadCert(fingerprint string) (*CertInfo, error)
+	LoadCertById(id int64) (*CertInfo, error)
 	StoreCert(cert *x509.Certificate, parent int64) (id int64, err error)
 
 	CreateRequest(secret int64) (id int64, err error)

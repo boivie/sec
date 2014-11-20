@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -66,7 +65,7 @@ func httpServer(port int16, state *common.State, csc chan common.RequestUpdated)
 	http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 }
 
-func addCert(state *common.State, stor store.Store, req dao.RequestDao, records []*common.Record, der []byte, issuer []byte) {
+func addCert(state *common.State, stor store.Store, req dao.RequestDao, records []*common.Record, fingerprint string) {
 	type Header struct {
 		Parent string   `json:"parent"`
 		Refs   []string `json:"refs"`
@@ -78,17 +77,12 @@ func addCert(state *common.State, stor store.Store, req dao.RequestDao, records 
 		X5t: utils.GetCertFingerprint(state.WebCert),
 	}
 
-	certDers := []string{
-		base64.StdEncoding.EncodeToString(der),
-		base64.StdEncoding.EncodeToString(issuer),
-	}
-
 	payload, _ := json.Marshal(struct {
-		Hdr      Header   `json:"header"`
-		CertDers []string `json:"certs"`
+		Hdr         Header `json:"header"`
+		Fingerprint string `json:"fingerprint"`
 	}{
 		Header{Parent: records[len(records)-1].Id},
-		certDers,
+		fingerprint,
 	})
 	jws, _ := gojws.Sign(header, payload, state.WebKey)
 
@@ -141,8 +135,8 @@ func generateCert(state *common.State, id int64) (err error) {
 	cert, _ := x509.ParseCertificate(certDer)
 	issuerId, _ := stor.StoreCert(state.IssueCert, 0)
 	stor.StoreCert(cert, issuerId)
-
-	addCert(state, stor, req, records, certDer, state.IssueCert.Raw)
+	fingerprint := utils.GetCertFingerprint(cert)
+	addCert(state, stor, req, records, fingerprint)
 
 	return
 }
