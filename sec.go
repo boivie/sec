@@ -72,9 +72,9 @@ func addCert(state *common.State, stor store.Store, req dao.RequestDao, records 
 	}
 
 	header := gojws.Header{
-		Alg: gojws.ALG_RS256,
-		Typ: "cert",
-		X5t: utils.GetCertFingerprint(state.WebCert),
+		Alg:     gojws.ALG_RS256,
+		Typ:     "cert",
+		X5ts256: utils.GetCertFingerprint(state.WebCert),
 	}
 
 	payload, _ := json.Marshal(struct {

@@ -5,7 +5,6 @@ import (
 	"crypto"
 	"crypto/cipher"
 	"crypto/rsa"
-	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base32"
@@ -72,7 +71,7 @@ func GetKeyPem(der []byte) (contents string, err error) {
 }
 
 func GetCertFingerprint(cert *x509.Certificate) string {
-	hash := sha1.New()
+	hash := sha256.New()
 	hash.Write(cert.Raw)
 	return B64encode(hash.Sum(nil))
 }

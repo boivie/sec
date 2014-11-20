@@ -36,7 +36,7 @@ type IdentityDao struct {
 
 type CertDao struct {
 	Id          int64
-	Fingerprint string `sql:"size:28;unique"`
+	Fingerprint string `sql:"size:44;unique"`
 	Parent      int64
 	CreatedAt   time.Time
 	NotBefore   time.Time

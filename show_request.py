@@ -47,7 +47,7 @@ for line in lines:
         fmt = bcolors.GREEN + "   ref %s" + bcolors.ENDC
         print(fmt % ref)
 
-    fingerprint = header.get("x5t")
+    fingerprint = header.get("x5t#S256")
     if fingerprint:
         print("author %s" % fingerprint)
     print("")

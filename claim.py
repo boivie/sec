@@ -67,10 +67,8 @@ for line in lines:
 
 if last_cert:
     payload = json.loads(b64_decode(payload))
-    cert_der = base64.b64decode(payload["certs"][0])
-    fingerprint = b64_encode(hashlib.sha1(cert_der).digest())
     jws_header  = {'alg': 'RS256', 'typ': "accept",
-                   'x5t': fingerprint}
+                   'x5t#S256': payload['fingerprint']}
     h2 = OrderedDict([('parent', last_record_id),
                       ('refs', [last_cert[0]])])
     o2 = OrderedDict([('header', h2)])
