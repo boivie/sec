@@ -24,7 +24,7 @@ class bcolors:
     ENDC = '\033[0m'
 
 r = requests.get(sys.argv[1])
-lines = [bytes(l) for l in r.text.strip().splitlines()]
+lines = [bytes(b) for b in r.json()["records"]]
 
 prev_parent = None
 for line in lines:

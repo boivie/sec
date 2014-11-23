@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"bufio"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -14,10 +13,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/op/go-logging"
 	"html/template"
-	"io"
-	"io/ioutil"
 	"net/http"
-	"strconv"
 	"strings"
 )
 
@@ -48,9 +44,13 @@ func GetTemplate(c http.ResponseWriter, r *http.Request) {
 		http.NotFound(c, r)
 		return
 	}
-	c.Header().Add("Content-Length", strconv.Itoa(len(t)+1))
-	io.WriteString(c, t)
-	io.WriteString(c, "\n")
+
+	s := struct {
+		Contents string `json:"contents"`
+	}{
+		t,
+	}
+	utils.Jsonify(c, s)
 }
 
 func CreateRequest(c http.ResponseWriter, r *http.Request) {
@@ -165,9 +165,9 @@ func cleanAndSplit(s string) (ret []string) {
 	return
 }
 
-func filterNew(current string, requested string) []string {
+func filterNew(current string, requested []string) []string {
 	ret := make([]string, 0)
-	for _, jws := range cleanAndSplit(requested) {
+	for _, jws := range requested {
 		if !strings.Contains(current, jws) {
 			ret = append(ret, jws)
 		}
@@ -175,17 +175,15 @@ func filterNew(current string, requested string) []string {
 	return ret
 }
 
+type UpdateRequestReq struct {
+	Records []string `json:"records"`
+}
+
 func UpdateRequest(c http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 	dbId, secret, err := utils.ParseStringId(params["id"], state.IdCrypto)
 	if err != nil {
 		log.Info("Invalid id:", err)
-		http.NotFound(c, r)
-		return
-	}
-	b, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		log.Info("Invalid JWS:", err)
 		http.NotFound(c, r)
 		return
 	}
@@ -201,8 +199,16 @@ func UpdateRequest(c http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	decoder := json.NewDecoder(r.Body)
+	var req UpdateRequestReq
+	err = decoder.Decode(&req)
+	if err != nil {
+		http.Error(c, err.Error(), 400)
+		return
+	}
+
 	olds := cleanAndSplit(iDao.Payload)
-	news := filterNew(iDao.Payload, string(b))
+	news := filterNew(iDao.Payload, req.Records)
 	kp := dbstore.KeyProvider{stor}
 
 	orecords, err := utils.ParseRecords(kp, olds)
@@ -248,6 +254,8 @@ func UpdateRequest(c http.ResponseWriter, r *http.Request) {
 
 func GetRequest(c http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
+	log.Info("GetRequest(%s)", params["id"])
+
 	dbId, secret, err := utils.ParseStringId(params["id"], state.IdCrypto)
 	if err != nil {
 		log.Info("Invalid id:", err)
@@ -262,22 +270,20 @@ func GetRequest(c http.ResponseWriter, r *http.Request) {
 			http.NotFound(c, r)
 			return
 		}
-		io.WriteString(c, obj.Payload)
-		io.WriteString(c, "\n")
+
+		utils.Jsonify(c, struct {
+			Records []string `json:"records"`
+		}{
+			strings.Split(obj.Payload, "\n"),
+		})
 	}
 }
 
-func parseCerts(r io.Reader) (certs []*x509.Certificate, err error) {
+func parseCerts(in []string) (certs []*x509.Certificate, err error) {
 	certs = make([]*x509.Certificate, 0)
-	scanner := bufio.NewScanner(r)
 	var certDer []byte
 	var cert *x509.Certificate
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
+	for _, line := range in {
 		certDer, err = base64.StdEncoding.DecodeString(line)
 		if err != nil {
 			return
@@ -291,11 +297,21 @@ func parseCerts(r io.Reader) (certs []*x509.Certificate, err error) {
 	return
 }
 
-// Input should be several lines, with one cert per line. The leaf cert
-// comes first, then any intermediate and last the root.
+type AddCertificateReq struct {
+	// The leaf cert comes first, then any intermediate and last the root.
+	Certs []string `json:"certificates"`
+}
+
 func AddCertificate(c http.ResponseWriter, r *http.Request) {
-	var err error
-	certs, err := parseCerts(r.Body)
+	decoder := json.NewDecoder(r.Body)
+	var req AddCertificateReq
+	err := decoder.Decode(&req)
+	if err != nil {
+		http.Error(c, err.Error(), 400)
+		return
+	}
+
+	certs, err := parseCerts(req.Certs)
 	if err != nil {
 		log.Warning("Failed to parse cert: %v", err)
 		http.Error(c, err.Error(), 400)
@@ -320,6 +336,7 @@ func AddCertificate(c http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Warning("Failed to store cert: %v", err)
 			http.Error(c, err.Error(), 400)
+			return
 		}
 	}
 
@@ -336,20 +353,26 @@ func GetCertificateChain(c http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ret := make([]string, 0)
 	var id int64 = firstCert.Id
 	for {
 		cert, err := stor.LoadCertById(id)
 		if err != nil {
+			http.Error(c, err.Error(), 400)
 			return
 		}
 		certDerB64 := base64.StdEncoding.EncodeToString(cert.Cert.Raw)
-		io.WriteString(c, certDerB64)
-		io.WriteString(c, "\n")
+		ret = append(ret, certDerB64)
 		if cert.Parent == 0 || cert.Parent == cert.Id {
 			break
 		}
 		id = cert.Parent
 	}
+	utils.Jsonify(c, struct {
+		Certs []string `json:"certificates"`
+	}{
+		ret,
+	})
 }
 
 func GetCertificate(c http.ResponseWriter, r *http.Request) {
@@ -361,8 +384,11 @@ func GetCertificate(c http.ResponseWriter, r *http.Request) {
 		http.NotFound(c, r)
 	} else {
 		certDerB64 := base64.StdEncoding.EncodeToString(cert.Cert.Raw)
-		io.WriteString(c, certDerB64)
-		io.WriteString(c, "\n")
+		utils.Jsonify(c, struct {
+			Certs []string `json:"certificates"`
+		}{
+			[]string{certDerB64},
+		})
 	}
 }
 

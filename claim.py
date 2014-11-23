@@ -48,14 +48,14 @@ offer_url = sys.argv[2]
 priv = rsa.importKey(open(private_key_fname))
 
 r = requests.get(offer_url)
-lines = [bytes(l) for l in r.text.strip().splitlines()]
+records = [bytes(c) for c in r.json()["records"]]
 last_offer = None
 last_cert = None
 last_record_id = None
-for line in lines:
-    last_record_id = b64_encode(hashlib.sha256(line.strip()).digest())
+for rjws in records:
+    last_record_id = b64_encode(hashlib.sha256(rjws).digest())
 
-    (header, payload, sig) = line.split('.')
+    (header, payload, sig) = rjws.split('.')
     header = jws.utils.decode(header)
     if header["typ"] == "offer":
         last_offer = (last_record_id, payload)
@@ -75,7 +75,7 @@ if last_cert:
     signature = jws.sign(jws_header, o2, priv)
     part1 = jws._signing_input(jws_header, o2)
     signed = part1 + "." + signature
-    r = requests.post(offer_url, data=signed)
+    r = requests.post(offer_url, json=dict(records=[signed]))
     if r.status_code != 200:
         print("Failed to accept cert")
         sys.exit(1)
@@ -96,7 +96,7 @@ elif last_offer:
 
     signed = part1 + "." + signature
 
-    r = requests.post(offer_url, data=signed)
+    r = requests.post(offer_url, json=dict(records=[signed]))
     if r.status_code != 200:
         print("Failed to claim offer")
         sys.exit(1)
