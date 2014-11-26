@@ -138,7 +138,7 @@ func Jsonify(c http.ResponseWriter, s interface{}) {
 	} else {
 		encoded, _ = json.MarshalIndent(s, "", "  ")
 	}
-	c.Header().Add("Content-Type", "application/json")
+	c.Header().Add("Content-Type", "application/vnd.sec+json")
 	c.Header().Add("Content-Length", strconv.Itoa(len(encoded)+1))
 	c.Write(encoded)
 	io.WriteString(c, "\n")
