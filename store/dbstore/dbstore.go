@@ -27,8 +27,8 @@ type KeyProvider struct {
 }
 
 func (sk KeyProvider) GetJWSKey(h gojws.Header) (key crypto.PublicKey, err error) {
-	if h.X5ts256 != "" {
-		cert, err := sk.Stor.LoadCert(h.X5ts256)
+	if h.X5t256 != "" {
+		cert, err := sk.Stor.LoadCert(h.X5t256)
 		if err == nil {
 			key = cert.Cert.PublicKey
 		}

@@ -95,9 +95,9 @@ type TemplateInput struct {
 func signTemplate(tmpl TemplateInput, priv *rsa.PrivateKey, cert *x509.Certificate) (contents string, err error) {
 	fingerprint := utils.GetCertFingerprint(cert)
 	header := gojws.Header{
-		Alg:     gojws.ALG_RS256,
-		Typ:     "template",
-		X5ts256: fingerprint,
+		Alg:    gojws.ALG_RS256,
+		Typ:    "template",
+		X5t256: fingerprint,
 	}
 	tmplBytes, err := json.Marshal(tmpl)
 	if err != nil {
@@ -122,9 +122,9 @@ func createOffer(state *common.State, s store.Store, priv *rsa.PrivateKey, cert 
 	}
 
 	header := gojws.Header{
-		Alg:     gojws.ALG_RS256,
-		Typ:     "create",
-		X5ts256: fingerprint,
+		Alg:    gojws.ALG_RS256,
+		Typ:    "create",
+		X5t256: fingerprint,
 	}
 	create, _ := json.Marshal(struct {
 		Hdr       Header `json:"header"`
