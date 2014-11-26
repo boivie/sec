@@ -86,18 +86,8 @@ func ParseJws(tokenString string, kp gojws.KeyProvider) (header gojws.Header, pa
 	return
 }
 
-func LoadJwk(jwk string) (crypto.PublicKey, error) {
-	var key struct {
-		Kty string `json:"kty"`
-		N   string `json:"n"`
-		E   string `json:"e"`
-	}
-	err := json.Unmarshal([]byte(jwk), &key)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to unmarshal key: %v", err)
-	}
-
-	switch key.Kty {
+func LoadJwk(key *gojws.Jwk) (crypto.PublicKey, error) {
+	switch key.KeyType {
 	case "RSA":
 		if key.N == "" || key.E == "" {
 			return nil, errors.New("Malformed JWS RSA key")
@@ -127,7 +117,7 @@ func LoadJwk(jwk string) (crypto.PublicKey, error) {
 		return pubKey, nil
 
 	default:
-		return nil, fmt.Errorf("Unknown JWS key type %s", key.Kty)
+		return nil, fmt.Errorf("Unknown JWS key type %s", key.KeyType)
 	}
 }
 

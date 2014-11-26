@@ -85,7 +85,7 @@ elif last_offer:
            "n": base64_bigint(priv.n),
            "e": base64_bigint(priv.e)}
     jws_header  = {'alg': 'RS256', 'typ': "claim",
-                   'jwk': json.dumps(jwk)}
+                   'jwk': jwk}
 
     h2 = OrderedDict([('parent', last_record_id),
                       ('refs', [last_offer[0]])])

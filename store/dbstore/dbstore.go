@@ -32,7 +32,7 @@ func (sk KeyProvider) GetJWSKey(h gojws.Header) (key crypto.PublicKey, err error
 		if err == nil {
 			key = cert.Cert.PublicKey
 		}
-	} else if h.Jwk != "" {
+	} else if h.Jwk != nil {
 		key, err = utils.LoadJwk(h.Jwk)
 	} else {
 		err = errors.New("No key specified")
