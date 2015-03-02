@@ -140,10 +140,12 @@ func createOffer(state *common.State, s store.Store, priv *rsa.PrivateKey, cert 
 		Hdr      Header   `json:"header"`
 		Template string   `json:"template"`
 		Fields   struct{} `json:"fields"`
+		Issuing  string   `json:"issuing"`
 	}{
 		Header{Parent: utils.GetFingerprint([]byte(j1))},
 		"issuer",
 		struct{}{},
+		"automatic",
 	})
 	j2, _ := gojws.Sign(header, offer, priv)
 
