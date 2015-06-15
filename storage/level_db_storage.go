@@ -15,7 +15,8 @@ type LevelDbStorage struct {
 	db                   *leveldb.DB
 	getLastRecordNbrChan chan *getRecordIndexReq
 	addChan              chan *add
-	appendChan           chan *append
+	appendChan           chan *appendCmd
+	getChan              chan *get
 }
 
 type RecordHeader struct {
@@ -36,8 +37,8 @@ func (s LevelDbStorage) getLastRecordNbr(key string) RecordIndex {
 	return 0
 }
 
-func getKey(record Record) []byte {
-	return []byte(fmt.Sprintf("r-%s-%d", record.Key, record.Index))
+func getKey(key string, index RecordIndex) []byte {
+	return []byte(fmt.Sprintf("r-%s-%d", key, index))
 }
 
 func getHeaderKey(key string) []byte {
@@ -45,7 +46,7 @@ func getHeaderKey(key string) []byte {
 }
 
 func queue(batch *leveldb.Batch, record Record) {
-	batch.Put(getKey(record), record.Data)
+	batch.Put(getKey(record.Key, record.Index), record.Data)
 
 	header := RecordHeader{LastIndex: record.Index}
 	data, _ := json.Marshal(header)
@@ -65,13 +66,30 @@ func (s LevelDbStorage) add(record Record) (err error) {
 	return
 }
 
-func (s LevelDbStorage) append(records []Record) error {
+func (s LevelDbStorage) doAppend(records []Record) (written []Record, err error) {
 	batch := new(leveldb.Batch)
 	for _, record := range records {
 		record.Index = s.getLastRecordNbr(record.Key) + 1
 		queue(batch, record)
+		written = append(written, record)
 	}
-	return s.db.Write(batch, nil)
+	return written, s.db.Write(batch, nil)
+}
+
+func (s LevelDbStorage) get(key string, from RecordIndex, to RecordIndex) []Record {
+	records := []Record{}
+	for idx := from; idx <= to; idx++ {
+		dbk := getKey(key, idx)
+		if data, err := s.db.Get(dbk, nil); err == nil {
+			record := Record{
+				Key: key,
+				Index: idx,
+				Data: data,
+			}
+			records = append(records, record)
+		}
+	}
+	return records
 }
 
 func (s LevelDbStorage) monitor() {
@@ -82,7 +100,10 @@ func (s LevelDbStorage) monitor() {
 		case c := <-s.addChan:
 			c.reply <- s.add(c.record)
 		case c := <-s.appendChan:
-			c.reply <- s.append(c.records)
+			records, e := s.doAppend(c.records)
+			c.reply <- appendResp{records, e}
+		case c := <-s.getChan:
+			c.reply <- s.get(c.key, c.from, c.to)
 		}
 	}
 }
@@ -95,7 +116,8 @@ func New() (ldbs Storage, err error) {
 			db,
 			make(chan *getRecordIndexReq),
 			make(chan *add),
-			make(chan *append),
+			make(chan *appendCmd),
+			make(chan *get),
 		}
 		go ldbs.monitor()
 		return &ldbs, err

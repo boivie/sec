@@ -8,6 +8,11 @@ import (
 func main() {
 	s, _ := storage.New()
 
-	fmt.Printf("Got %d\n", s.Add(storage.Record{"hello", 1, []byte("helloworld")}))
-	fmt.Printf("Got %d\n", s.GetLastRecordNbr("hello"))
+	fmt.Printf("Got %v\n", s.Add(storage.Record{"hello", 1, []byte("helloworld")}))
+	fmt.Printf("Got %v\n", s.GetLastRecordNbr("hello"))
+
+	written, _ := s.Append([]storage.Record{storage.Record{"hello", 1, []byte("helloworld")}})
+	fmt.Printf("Got %v\n", written)
+	data, _ := s.GetOne("hello", 1)
+	fmt.Printf("Got %v\n", data)
 }

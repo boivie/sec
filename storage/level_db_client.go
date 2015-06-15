@@ -1,4 +1,5 @@
 package storage
+import "errors"
 
 type getRecordIndex struct {
 	key   string
@@ -10,9 +11,21 @@ type add struct {
 	reply  chan error
 }
 
-type append struct {
+type appendResp struct {
+	written []Record;
+	err     error
+}
+
+type appendCmd struct {
 	records []Record
-	reply   chan error
+	reply   chan appendResp
+}
+
+type get struct {
+	key   string
+	from  RecordIndex
+	to    RecordIndex
+	reply chan []Record
 }
 
 func (s LevelDbStorage) GetLastRecordNbr(key string) (ret RecordIndex) {
@@ -25,25 +38,34 @@ func (s LevelDbStorage) GetLastRecordNbr(key string) (ret RecordIndex) {
 func (s LevelDbStorage) Add(record Record) (err error) {
 	myc := make(chan error)
 	s.addChan <- &add{record, myc}
-	err = <-myc
-	return
+	return <-myc
 }
 
-func (s LevelDbStorage) Append(records []Record) (err error) {
-	myc := make(chan error)
-	s.appendChan <- &append{records, myc}
-	err = <-myc
-	return
+func (s LevelDbStorage) Append(records []Record) ([]Record, error) {
+	myc := make(chan appendResp)
+	s.appendChan <- &appendCmd{records, myc}
+	ret := <-myc
+	return ret.written, ret.err
 }
 
 func (s LevelDbStorage) Get(key string, from RecordIndex, to RecordIndex) []Record {
-	return nil
+	myc := make(chan []Record)
+	s.getChan <- &get{key, from, to, myc}
+	return <-myc
 }
 
 func (s LevelDbStorage) GetOne(key string, index RecordIndex) (Record, error) {
-	return Record{}, nil
+	records := s.Get(key, index, index)
+	if len(records) == 0 {
+		return Record{}, errors.New("Record not found")
+	}
+	return records[0], nil
 }
 
 func (s LevelDbStorage) GetAll(key string) []Record {
-	return nil
+	last := s.getLastRecordNbr(key)
+	if last == 0 {
+		return []Record{}
+	}
+	return s.Get(key, 1, last)
 }
