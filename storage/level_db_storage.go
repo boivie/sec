@@ -38,11 +38,11 @@ func (s LevelDbStorage) getLastRecordNbr(key string) RecordIndex {
 }
 
 func getKey(key string, index RecordIndex) []byte {
-	return []byte(fmt.Sprintf("r-%s-%d", key, index))
+	return []byte(fmt.Sprintf("r:%s:%08x", key, index))
 }
 
 func getHeaderKey(key string) []byte {
-	return []byte("r-" + key)
+	return []byte("r:" + key)
 }
 
 func queue(batch *leveldb.Batch, record Record) {
