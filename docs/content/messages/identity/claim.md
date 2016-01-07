@@ -6,7 +6,7 @@ title = "Claim Identity"
 
 ## Introduction
 
-{{% started %}}[identity.offer]({{< relref "messages/identity.offer.md" >}}){{% /started %}}
+{{% started %}}[identity.offer]({{< relref "messages/identity/offer.md" >}}){{% /started %}}
 
 NOTE: This message must be signed by the provided public key. It will however
       not set the `kid` JWS header property. Instead, the `jwk` JWS header
@@ -14,8 +14,7 @@ NOTE: This message must be signed by the provided public key. It will however
 
 ## Payload, mandatory fields
 
-* `_type` (string): Set to "identity.claim"
-* `_parent` (base64). SHA256 of the parent message.
+* `resource` (string): Set to "identity.claim"
 * `algorithm` (ref) The certificate algorithm used. Can be one of:
   * `RSA2048` 2048 bit RSA certificate.
 * `at` (timestamp): The timestamp when this message was created, specified
@@ -48,8 +47,8 @@ Showing the JWS header and payload.
 }
 
 {
-  "_type": "identity.claim",
-  "_parent": "hn2G8AP9RAhQMQbW78KKgAe/w5U1qCzi7u8NNr0K4xs=",
+  "resource": "identity.claim",
+  "index": 1,
   "algorithm": "RSA2048",
   "at": 1434806059000,
   "title": "John Doe, jdoe@example.com"

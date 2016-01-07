@@ -13,31 +13,32 @@ a topic.
 
 ## JWS requirements
 
-A client should reject messages that do not fulfill the following requirements.
+The server will reject messages that do not fulfill the following requirements.
 
-1. The `alg` (algorithm) field in the JWS header must be `RS256`
-1. The `nonce` field in the JWS header must be present. It is recommended, but
-   not enforced, that the nonce is 256 bits and base64-encoded.
-1. Except for the [claim-identity]({{< relref "messages/claim-identity.md" >}})
-   message type, the `kid` field in the JWS header must be present.
+1. The JWS MUST use the Flattened JSON Serialization
+1. The JWS MUST be encoded using UTF-8
+1. The `alg` (algorithm) field in the protected JWS header MUST be `RS256`
+1. The `nonce` field in the JWS protected header MUST be present and MUST be at
+   least 256 bits and should be base64-encoded. The server will validate that it
+   is of sufficient length (minimum 256/8 * 4/3 = 43 bytes, including padding).
+1. The `kid` field in the JWS header must be present in the protected JWS
+   header, except for the following resources where the `jwk` field must be
+   present instead:
+    * [identity.claim]({{< relref "messages/identity/claim.md" >}})
+    * [root.config]({{< relref "messages/root/config.md" >}})
 
 ## Standard fields
 
-Fields starting with an underscore are generic fields, in contrast to
-type-specific fields which must not start with an underscore. The
-allowed fields are:
+The following fields are standard fields and must appear in all message payloads.
 
- * `_type` (string). Defines the type of the message. The server receiving
-   the message must handle the message type to allow it to be added to a
-   topic. The supported types are specified in the
-   [workflow]({{< relref "messages/workflow.md" >}}) page.
-* `_parent` (base64). SHA256 of the parent message, used for chaining.
+* `resource` (string). Defines the type of the message (`identity.claim` etc)
+* `index` (number). Index of the message within the topic (zero-based).
 
 ## Auditor Signature
 
 The auditor signature is a JWS signature with the following:
 
-### Header fields
+### Protected JWS Header fields
 
 * `alg` will be `RS256`
 * `kid` will be set and valid.
@@ -48,7 +49,8 @@ The auditor signature is a JWS signature with the following:
  * `at`: (timestamp) The timestamp when this message was created, specified
    as milliseconds since 1970-01-01 00:00:00 UTC.
  * `index` (number) The message index within the topic that this signature covers.
- * `hash`: (base64) The SHA256 of the entire message, in the JWS encoded form.
+ * `payload_hash`: (base64) The SHA256 of the JWS payload.
+ * `header_hash`: (base64) The SHA256 of the protected JWS header.
  * `parent`: (base64) The SHA256 of the previous auditor signature.
  * `references`: (array of objects) Direct references used (for validating certificates etc).
    * `topic`: (ref) topic id

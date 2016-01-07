@@ -15,11 +15,7 @@ messagetype="sign.request"
 * `at` (timestamp): The timestamp when this message was created, specified
    as milliseconds since 1970-01-01 00:00:00 UTC. Note that servers may reject
    a message with a timestamp that is too far in the past or future.
-* `human_readable_text` (string) The text to display to the user
-
-## Payload, optional fields
-
-* `ref` (string). Caller reference.
+* `message` (string): JWS signed message to sign.
 
 ## Example
 
@@ -35,7 +31,10 @@ Showing the JWS header and payload.
 {
   "_type": "sign.request",
   "at": 1434806059000,
-  "human_readable_text": "Deploy version 2015-08-01#23 to production?",
-  "ref": "deploy:backend#6684"
+  "message": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkw
+              IiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.EkN-DOsnsuRjRO6B
+              xXemmJDm3HbxrbRzXglbN2S4sOkopdU4IsDxTI8jO19W_A4K8ZPJijNLis4EZ
+              sHeY559a4DFOd50_OqgHGuERTqYZyuhtF39yxJPAjUESwxk2J5k_4zM3O-vtd
+              1Ghyo4IbqKKSy6J9mTniYJPenn5-HIirE"
 }
 {{< /highlight >}}

@@ -8,7 +8,7 @@ type Record struct {
 
 type RecordIndex int32
 
-type Storage interface {
+type RecordStorage interface {
 	GetLastRecordNbr(key string) RecordIndex
 	// Validates the 'index'
 	Add(record Record) error
