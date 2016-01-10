@@ -8,32 +8,46 @@ title = "Claim Identity"
 
 {{% started %}}[identity.offer]({{< relref "messages/identity/offer.md" >}}){{% /started %}}
 
-NOTE: This message must be signed by the provided public key. It will however
-      not set the `kid` JWS header property. Instead, the `jwk` JWS header
-      property will be set to provide the public key to be signed.
+NOTE: Only one message of the type `identity.claim` can exist in a given topic.
 
 ## Payload, mandatory fields
 
 * `resource` (string): Set to "identity.claim"
-* `algorithm` (ref) The certificate algorithm used. Can be one of:
-  * `RSA2048` 2048 bit RSA certificate.
 * `at` (timestamp): The timestamp when this message was created, specified
-   as milliseconds since 1970-01-01 00:00:00 UTC. Note that servers may reject
-   a message with a timestamp that is too far in the past or future.
-* `title` (string): Name of this identity
+  as milliseconds since 1970-01-01 00:00:00 UTC. Note that servers may reject
+  a message with a timestamp that is too far in the past or future.
+* `public_key` (JSON object): Public key object.
+* `oob_hash` (base64): Optional hashed out-of-bounds data, described below.
 
-## Payload, optional fields
+## Notes about oob_proof
 
-* `ref` (string). Caller reference.
+When offering identities, the issuer should provide some data to the individual
+indenting to claim this identity in order to prove that the individual is the
+actual indented recipient. This data, called `oob_data` will never be provided
+to the system.
+
+The `oob_hash` field should be the base64-encoded SHA256 hash of the message:
+`topic` + `oob_data` + `account_id`, where + is the concatentation of the
+strings.
 
 ## Example
 
-Showing the JWS header and payload.
+Showing the protected JWS header and payload.
 
 {{< highlight json >}}
 {
   "alg": "RS256",
-  "jwk": {
+  "kid": "FjeYMznaw89BSwJpQP7koCgPB7iiSPNpLjf2dpv2RiLV",
+  "nonce": "nliwch3bv2pallp95vrukktzjcd+dz7tpdybya0ijmc="
+}
+
+{
+  "resource": "identity.claim",
+  "topic": "FLprEtiKrK6ht5b3kziCACzzhX9cR2me99vUaysexb4d"
+  "index": 1,
+  "parent": "0eInsyhvWgJpM+2i0gw2AkrML8HdKxS+5Y4h4nTdo8c=",
+  "at": 1434806059000,
+  "public_key": {
     "kty": "RSA",
     "n": "vrjOfz9Ccdgx5nQudyhdoR17V-IubWMeOZCwX_jj0hgAsz2J_pqYW08
           PLbK_PdiVGKPrqzmDIsLI7sA25VEnHU1uCLNwBuUiCO11_-7dYbsr4iJmG0Q
@@ -43,14 +57,6 @@ Showing the JWS header and payload.
           VfJb6jJVWRpl2SUtCnYG2C32qvbWbjZ_jBPD5eunqsIo1vQ",
     "e": "AQAB"
   },
-  "nonce": "nliwch3bv2pallp95vrukktzjcd+dz7tpdybya0ijmc="
-}
-
-{
-  "resource": "identity.claim",
-  "index": 1,
-  "algorithm": "RSA2048",
-  "at": 1434806059000,
-  "title": "John Doe, jdoe@example.com"
+  "oob_hash": "KMjiwHJayytCOAxaFjR3g+N2Kwq18pZYUdpjMAZkqaE="
 }
 {{< /highlight >}}

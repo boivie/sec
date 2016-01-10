@@ -15,13 +15,11 @@ instructions to the user.
 
 NOTE: This message is optional.
 
+NOTE: This message will be signed by the account key.
+
 ## Payload, mandatory fields
 
-* `_type` (string): Set to "sign.initiated"
-* `_parent` (base64). SHA256 of the parent message.
-* `at` (timestamp): The timestamp when this message was created, specified
-   as milliseconds since 1970-01-01 00:00:00 UTC. Note that servers may reject
-   a message with a timestamp that is too far in the past or future.
+* `resource` (string): Set to "sign.initiated"
 
 ## Example
 
@@ -35,8 +33,10 @@ Showing the JWS header and payload.
 }
 
 {
-  "_type": "sign.initiated",
-  "_parent": "POjPY10O/PKNGI/8LqrRG9BZHq+Iamv46JzFfaWdRG8=",
+  "resource": "sign.initiated",
+  "topic": "ABRAKADABRA",
+  "index": 1,
+  "parent": "SeRLB9mmltxcgL6JJ2adlXnkwUHfPrp3l6Zae2+6xl0=",
   "at": 1434806059000
 }
 {{< /highlight >}}

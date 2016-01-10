@@ -12,15 +12,11 @@ Indicates that the user has signed the message.
 
 {{% notin %}}[sign.rejected]({{< relref "messages/sign.rejected.md" >}}){{% /notin %}}
 
+NOTE: This message will be signed by the identity key.
 
 ## Payload, mandatory fields
 
-* `_type` (string): Set to "sign.performed"
-* `_parent` (base64). SHA256 of the parent message.
-* `at` (timestamp): The timestamp when this message was created, specified
-   as milliseconds since 1970-01-01 00:00:00 UTC. Note that servers may reject
-   a message with a timestamp that is too far in the past or future.
-* `message`
+* `resource` (string): Set to "sign.performed"
 
 ## Example
 
@@ -34,8 +30,10 @@ Showing the JWS header and payload.
 }
 
 {
-  "_type": "sign.performed",
-  "_parent": "XDBLO//e4Ti76DK87sydkB+bQXe4Vf7MUYNTJJjCF/c=",
+  "resource": "sign.performed",
+  "topic": "ABRAKADABRA",
+  "index": 2,
+  "parent": "WvnPibXJIEsfPMbxNKIdQ7hiS3wUqiJdqHpLQM5VaHo=",
   "at": 1434806059000
 }
 {{< /highlight >}}

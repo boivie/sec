@@ -2,6 +2,10 @@
 
 The auditor signature is a JWS signature with the following:
 
+### Unprotected JWS Header fields
+
+* `alg` will be `RS256`
+
 ### Protected JWS Header fields
 
 * `alg` will be `RS256`
@@ -10,33 +14,37 @@ The auditor signature is a JWS signature with the following:
 
 ### Payload fields
 
+ * `topic` (string) The topic ID
+ * `index` (number) The message index within the topic that this signature covers.
+ * `parent`: (base64) The SHA256 of the previous auditor signature.
  * `at`: (timestamp) The timestamp when this message was created, specified
    as milliseconds since 1970-01-01 00:00:00 UTC.
- * `index` (number) The message index within the topic that this signature covers.
- * `payload_hash`: (base64) The SHA256 of the JWS payload.
- * `header_hash`: (base64) The SHA256 of the protected JWS header.
- * `parent`: (base64) The SHA256 of the previous auditor signature.
+ * `signature_hash`: (base64) The SHA256 of the JWS signature.
  * `references`: (array of objects) Direct references used (for validating certificates etc).
    * `topic`: (ref) topic id
    * `index` (number) index used when validating.
+   * `hash` (base64) The SHA256 of the auditor signature of that record.
 
 #### example
 
 {{< highlight json >}}
 {
   "alg": "RS256",
-  "kid": "ZLQXVIQ5GH3Q6Z4ZACEVACYF5KAQFGUOJV3SPEXDHGKPHTSSAL7A",
+  "kid": "Br4R8rMhAK6Yj4nJxyLhp51pQsMurYypBhoBAcYejk6S",
   "nonce": "yyq1pv0IsqDWjTYlHHzHBGqcnLJth2LwKXfbMJzKt+U="
 }
 
 {
-  "at": 1436820304865,
-  "hash": "OBXzBo4Rks4kIvcrdLm9XfHZ0A1K+UlPS++zymJ76Uk=",
+  "topic": "HVv3RdBv8ocYpCGV2oR2PQjDWUnoJ7bYrb7x3Cpzpxby",
+  "index": 4,
   "parent": "w0rr0mamPbdHB2Momx9bN2J2a1FJk9tRcmvSOfYnmeU=",
+  "at": 1436820304865,
+  "signature_hash": "OBXzBo4Rks4kIvcrdLm9XfHZ0A1K+UlPS++zymJ76Uk=",
   "references": [
     {
-      "topic": "TBFXUGQ4HZH6KT7ZOPBSSCM63NJLZDNPYOIAAQAUR7DJWGVTDZBQ",
-      "index": 5
+      "topic": "G4FJy9dVX4H27Yvvmwi8BZyhSwd2wmWAwSkfHEjYVr2m",
+      "index": 5,
+      "hash": "0RN2SfhVxSScamiATvFi+wsIKtO6U4XgE24qi5yRY2s="
     }
   ]
 }
