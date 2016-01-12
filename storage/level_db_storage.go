@@ -108,7 +108,7 @@ func (s LevelDbStorage) monitor() {
 	}
 }
 
-func New() (ldbs Storage, err error) {
+func New() (ldbs RecordStorage, err error) {
 	db, err := leveldb.OpenFile("path/to/db", nil)
 
 	if err == nil {

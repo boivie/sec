@@ -70,13 +70,21 @@ func generateRootKeyAndCert(id string) (*rsa.PrivateKey, []byte) {
 	return priv, pemBytes
 }
 
-func Bootstrap(stor storage.Storage) {
+func Bootstrap(stor storage.MessageStorage) {
 	ts := utils.NowStr()
-	offer := messages.CertSigningRequest{Timestamp: ts}.Serialize()
+	offer := messages.Serialize(messages.CertSigningRequest{Timestamp: ts})
 	id := utils.RecordChecksum(offer)
 	_, pemBytes := generateRootKeyAndCert(id)
 
-	stor.Add(storage.Record{id, 1, offer})
-	cert := messages.SignedCert{PEM: string(pemBytes)}.Serialize()
+	// Add root certificate
+	stor.Add(storage.Message{id, 1, offer})
+	cert := messages.Serialize(messages.SignedCert{PEM: string(pemBytes)})
 	stor.Add(storage.Record{id, 2, cert})
+	log.Printf("Created root cert %s\n", id)
+
+	// Add root config
+	rootConfig := messages.Serialize(messages.RootConfig{RootCert: id})
+	configId := utils.RecordChecksum(rootConfig)
+	stor.Add(storage.Record{configId, 1, rootConfig})
+	log.Printf("Created root config %s\n", configId)
 }

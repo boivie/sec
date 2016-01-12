@@ -1,21 +1,22 @@
 package messages
-import "encoding/json"
+import (
+	"encoding/json"
+)
 
-type Message struct {
-}
 
 type CertSigningRequest struct {
-	Message
 	Timestamp string `json:"timestamp"`
 }
 
 type SignedCert struct {
-	Message
 	PEM string `json:"pem"`
 }
 
+type RootConfig struct {
+	RootCert string `json:"root_cert"`
+}
 
-func (m Message) Serialize() []byte {
+func Serialize(m interface{}) []byte {
 	b, _ := json.Marshal(m)
 	return b
 }

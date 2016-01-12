@@ -1,0 +1,7 @@
+=============== Jun 16, 2015 (CEST) ===============
+20:39:46.783324 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock D·DeletedEntry L·Level Q·SeqNum T·TimeElapsed
+20:39:46.784594 db@open opening
+20:39:46.784712 journal@recovery F·1
+20:39:46.784897 journal@recovery recovering @7
+20:39:46.786185 db@janitor F·3 G·0
+20:39:46.786206 db@open done T·1.594577ms
