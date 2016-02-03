@@ -16,10 +16,11 @@ The auditor signature is a JWS signature with the following:
 
  * `topic` (string) The topic ID
  * `index` (number) The message index within the topic that this signature covers.
- * `parent`: (base64) The SHA256 of the previous auditor signature.
  * `at`: (timestamp) The timestamp when this message was created, specified
    as milliseconds since 1970-01-01 00:00:00 UTC.
- * `signature_hash`: (base64) The SHA256 of the JWS signature.
+ * `signature_hash`: (base64) The SHA256 of the JWS signature of the message signed.
+
+### Payload fields, optional
  * `references`: (array of objects) Direct references used (for validating certificates etc).
    * `topic`: (ref) topic id
    * `index` (number) index used when validating.
