@@ -41,13 +41,6 @@ func (s LevelDbStorage) Add(record Record) (err error) {
 	return <-myc
 }
 
-func (s LevelDbStorage) Append(records []Record) ([]Record, error) {
-	myc := make(chan appendResp)
-	s.appendChan <- &appendCmd{records, myc}
-	ret := <-myc
-	return ret.written, ret.err
-}
-
 func (s LevelDbStorage) Get(key string, from RecordIndex, to RecordIndex) []Record {
 	myc := make(chan []Record)
 	s.getChan <- &get{key, from, to, myc}

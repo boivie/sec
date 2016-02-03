@@ -15,7 +15,6 @@ type LevelDbStorage struct {
 	db                   *leveldb.DB
 	getLastRecordNbrChan chan *getRecordIndexReq
 	addChan              chan *add
-	appendChan           chan *appendCmd
 	getChan              chan *get
 }
 
@@ -66,16 +65,6 @@ func (s LevelDbStorage) add(record Record) (err error) {
 	return
 }
 
-func (s LevelDbStorage) doAppend(records []Record) (written []Record, err error) {
-	batch := new(leveldb.Batch)
-	for _, record := range records {
-		record.Index = s.getLastRecordNbr(record.Key) + 1
-		queue(batch, record)
-		written = append(written, record)
-	}
-	return written, s.db.Write(batch, nil)
-}
-
 func (s LevelDbStorage) get(key string, from RecordIndex, to RecordIndex) []Record {
 	records := []Record{}
 	for idx := from; idx <= to; idx++ {
@@ -99,9 +88,6 @@ func (s LevelDbStorage) monitor() {
 			c.resp <- s.getLastRecordNbr(c.key)
 		case c := <-s.addChan:
 			c.reply <- s.add(c.record)
-		case c := <-s.appendChan:
-			records, e := s.doAppend(c.records)
-			c.reply <- appendResp{records, e}
 		case c := <-s.getChan:
 			c.reply <- s.get(c.key, c.from, c.to)
 		}
@@ -116,7 +102,6 @@ func New() (ldbs RecordStorage, err error) {
 			db,
 			make(chan *getRecordIndexReq),
 			make(chan *add),
-			make(chan *appendCmd),
 			make(chan *get),
 		}
 		go ldbs.monitor()
