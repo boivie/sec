@@ -10,6 +10,8 @@ import (
 	"github.com/boivie/sec/httpapi"
 	"flag"
 	"github.com/boivie/sec/storage"
+	"github.com/boivie/sec/proto"
+	"encoding/base64"
 )
 
 
@@ -17,7 +19,7 @@ var (
 	signalchan = make(chan os.Signal, 1)
 	log = logging.MustGetLogger("lovebeat")
 
-	debug       = flag.Bool("debug", false, "Enable debug logs")
+	debug = flag.Bool("debug", false, "Enable debug logs")
 	cfgFile = flag.String("config", "/etc/lovebeat.cfg", "Configuration file")
 )
 
@@ -57,5 +59,27 @@ func main() {
 		panic("Failed to open storage")
 	}
 	go httpServer(&cfg.Http, stor)
+
+	r := proto.Record{
+		0,
+		"type",
+		&proto.Message{
+			[]byte{1, 2, 3},
+			[]byte{2, 3, 4},
+			[]byte{3, 4, 5},
+			[]byte{4, 5, 6},
+		},
+		&proto.Message{
+			[]byte{1, 2, 3},
+			[]byte{2, 3, 4},
+			[]byte{3, 4, 5},
+			[]byte{4, 5, 6},
+		},
+	}
+	var topic storage.RecordTopic
+	b, _ := base64.StdEncoding.DecodeString("aK/6H6851b73Qkm/swPuCSIcaja1Ysg6b2CNAsklDLY=")
+	copy(topic[:], b)
+	stor.Add(topic, 0, r)
+
 	signalHandler()
 }

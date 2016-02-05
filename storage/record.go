@@ -1,17 +1,13 @@
 package storage
+import "github.com/boivie/sec/proto"
 
-type Record struct {
-	Key   string
-	Index RecordIndex
-	Data  []byte
-}
-
+type RecordTopic [32]byte
 type RecordIndex int32
 
 type RecordStorage interface {
-	GetLastRecordNbr(key string) RecordIndex
-	Add(record Record) error
-	Get(key string, from RecordIndex, to RecordIndex) []Record
-	GetOne(key string, index RecordIndex) (Record, error)
-	GetAll(key string) []Record
+	GetLastRecordNbr(topic RecordTopic) RecordIndex
+	Add(topic RecordTopic, index RecordIndex, record proto.Record) error
+	Get(topic RecordTopic, from RecordIndex, to RecordIndex) ([]proto.Record, error)
+	GetOne(topic RecordTopic, index RecordIndex) (proto.Record, error)
+	GetAll(topic RecordTopic) ([]proto.Record, error)
 }

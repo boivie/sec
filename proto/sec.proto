@@ -1,0 +1,16 @@
+syntax = "proto3";
+package proto;
+
+message Message {
+  bytes header = 1;
+  bytes protected = 2;
+  bytes payload = 3;
+  bytes signature = 4;
+}
+
+message Record {
+  int32 index = 1;
+  string type = 2;
+  Message message = 3;
+  Message audit = 4;
+}

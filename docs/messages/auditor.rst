@@ -20,16 +20,19 @@ Payload fields
 
  * ``topic`` (string) The topic ID
  * ``index`` (number) The message index within the topic that this signature covers.
- * ``at``: (timestamp) The timestamp when this message was created, specified
+ * ``parent`` (base64). The base64-encoded SHA256 of the previous message's
+   signature. This field MUST NOT be present in the initial message for a given
+   topic.
+* ``at``: (timestamp) The timestamp when this message was created, specified
    as milliseconds since 1970-01-01 00:00:00 UTC.
  * ``signature_hash``: (base64) The SHA256 of the JWS signature of the message signed.
 
 Payload fields, optional
 ~~~~~~~~~~~~~~~~~~~~~~~~
  * ``references``: (array of objects) Direct references used (for validating certificates etc).
-   * ``topic``: (ref) topic id
-   * ``index`` (number) index used when validating.
-   * ``hash`` (base64) The SHA256 of the auditor signature of that record.
+ ** ``topic``: (ref) topic id
+ ** ``index`` (number) index used when validating.
+ ** ``hash`` (base64) The SHA256 of the auditor signature of that record.
 
 example
 ~~~~~~~

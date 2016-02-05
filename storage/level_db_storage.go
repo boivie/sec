@@ -3,13 +3,13 @@ package storage
 import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"fmt"
-	"encoding/json"
+	"encoding/hex"
+	"github.com/golang/protobuf/proto"
+	"math"
+	. "github.com/boivie/sec/proto"
 )
 
-type getRecordIndexReq struct {
-	key  string
-	resp chan RecordIndex
-}
+const KEY_FORMAT = "r:%64s:%08x"
 
 type LevelDbStorage struct {
 	db                   *leveldb.DB
@@ -22,74 +22,64 @@ type RecordHeader struct {
 	LastIndex RecordIndex
 }
 
-func (s LevelDbStorage) getRecordHeader(key string) (header RecordHeader, err error) {
-	if data, err := s.db.Get(getHeaderKey(key), nil); err == nil {
-		err = json.Unmarshal(data, &header)
+func (s LevelDbStorage) getLastRecordNbr(topic RecordTopic) RecordIndex {
+	q := s.db.NewIterator(nil, nil)
+	defer q.Release()
+	q.Seek(getKey(topic, math.MaxInt32))
+	if !q.Prev() {
+		return -1
 	}
-	return
+	var topic16 string
+	var idx RecordIndex
+	fmt.Sscan(KEY_FORMAT, &topic16, &idx)
+	return idx
 }
 
-func (s LevelDbStorage) getLastRecordNbr(key string) RecordIndex {
-	if header, err := s.getRecordHeader(key); err == nil {
-		return header.LastIndex
-	}
-	return 0
+func getKey(topic RecordTopic, index RecordIndex) []byte {
+	return []byte(fmt.Sprintf(KEY_FORMAT, hex.EncodeToString(topic[:]), index))
 }
 
-func getKey(key string, index RecordIndex) []byte {
-	return []byte(fmt.Sprintf("r:%s:%08x", key, index))
-}
-
-func getHeaderKey(key string) []byte {
-	return []byte("r:" + key)
-}
-
-func queue(batch *leveldb.Batch, record Record) {
-	batch.Put(getKey(record.Key, record.Index), record.Data)
-
-	header := RecordHeader{LastIndex: record.Index}
-	data, _ := json.Marshal(header)
-	batch.Put(getHeaderKey(record.Key), data)
-}
-
-func (s LevelDbStorage) add(record Record) (err error) {
-	lastIndex := s.getLastRecordNbr(record.Key)
-	if record.Index != (lastIndex + 1) {
-		err = fmt.Errorf("Index requested %d, should be %d", record.Index, lastIndex+1)
+func (s LevelDbStorage) add(topic RecordTopic, index RecordIndex, record Record) (err error) {
+	lastIndex := s.getLastRecordNbr(topic)
+	if index != (lastIndex + 1) {
+		err = fmt.Errorf("Index requested %d, should be %d", index, lastIndex + 1)
 	} else {
 		batch := new(leveldb.Batch)
-		queue(batch, record)
-		return s.db.Write(batch, nil)
+		data, err := proto.Marshal(&record)
+		if err == nil {
+			batch.Put(getKey(topic, index), data)
+			err = s.db.Write(batch, nil)
+		}
 	}
-
 	return
 }
 
-func (s LevelDbStorage) get(key string, from RecordIndex, to RecordIndex) []Record {
+func (s LevelDbStorage) get(topic RecordTopic, from RecordIndex, to RecordIndex) ([]Record, error) {
 	records := []Record{}
 	for idx := from; idx <= to; idx++ {
-		dbk := getKey(key, idx)
+		dbk := getKey(topic, idx)
 		if data, err := s.db.Get(dbk, nil); err == nil {
-			record := Record{
-				Key: key,
-				Index: idx,
-				Data: data,
+			var record Record
+			err := proto.Unmarshal(data, &record)
+			if err != nil {
+				return nil, err
 			}
 			records = append(records, record)
 		}
 	}
-	return records
+	return records, nil
 }
 
 func (s LevelDbStorage) monitor() {
 	for {
 		select {
 		case c := <-s.getLastRecordNbrChan:
-			c.resp <- s.getLastRecordNbr(c.key)
+			c.resp <- s.getLastRecordNbr(c.topic)
 		case c := <-s.addChan:
-			c.reply <- s.add(c.record)
+			c.reply <- s.add(c.topic, c.index, c.record)
 		case c := <-s.getChan:
-			c.reply <- s.get(c.key, c.from, c.to)
+			r, e := s.get(c.topic, c.from, c.to)
+			c.reply <- getresp{r, e}
 		}
 	}
 }

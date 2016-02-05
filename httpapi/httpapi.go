@@ -12,6 +12,7 @@ import (
 	"github.com/boivie/sec/storage"
 	"encoding/json"
 	"encoding/base64"
+	"github.com/boivie/sec/proto"
 )
 
 type Request struct {
@@ -37,11 +38,6 @@ type jws struct {
 	Protected string `json:"protected"`
 	Payload   string `json:"payload"`
 	Signature string `json:"signature"`
-}
-
-type RecordContents struct {
-	Message jws `json:"message"`
-	Audit   jws `json:"audit"`
 }
 
 func createResponse() (int64, chan bool) {
@@ -101,19 +97,57 @@ func getResponse(requestId int64) chan bool {
 	return response
 }
 
-func getTopicIndex(msg RecordContents) (topic string, index storage.RecordIndex, err error) {
+func getTopicIndex(msg RecordContents) (topic storage.RecordTopic, index storage.RecordIndex, err error) {
 	if data, err := base64.StdEncoding.DecodeString(msg.Audit.Payload); err == nil {
 		var auditMsg struct {
 			Topic string `json:"topic"`
 			Index storage.RecordIndex `json:"index"`
 		}
 
-		if err = json.Unmarshal(data, auditMsg); err == nil {
-			topic = auditMsg.Topic
+		if err = json.Unmarshal(data, &auditMsg); err == nil {
+			var tbytes []byte
+			tbytes, err = base64.StdEncoding.DecodeString(auditMsg.Topic)
+			copy(topic[:], tbytes)
 			index = auditMsg.Index
 		}
 	}
 	return
+}
+
+func JwsMessageToProto(in jws) (msg proto.Message, err error) {
+	msg.Header, err = json.Marshal(in.Header)
+	if err != nil {
+		return
+	}
+
+	msg.Protected, err = base64.StdEncoding.DecodeString(in.Protected)
+	if err != nil {
+		return
+	}
+	msg.Payload, err = base64.StdEncoding.DecodeString(in.Payload)
+	if err != nil {
+		return
+	}
+	msg.Signature, err = base64.StdEncoding.DecodeString(in.Signature)
+	if err != nil {
+		return
+	}
+	return
+}
+
+func ProtoMessageToJws(in *proto.Message) (out jws, err error) {
+	err = json.Unmarshal(in.Header, &out.Header)
+	if err == nil {
+		out.Protected = base64.StdEncoding.EncodeToString(in.Protected)
+		out.Payload = base64.StdEncoding.EncodeToString(in.Payload)
+		out.Signature = base64.StdEncoding.EncodeToString(in.Signature)
+	}
+	return
+}
+
+type RecordContents struct {
+	Message jws `json:"message"`
+	Audit   jws `json:"audit"`
 }
 
 func AuditorStoreHandler(w http.ResponseWriter, r *http.Request) {
@@ -133,11 +167,17 @@ func AuditorStoreHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := json.Marshal(msg)
+	message, err := JwsMessageToProto(msg.Message)
 	if err != nil {
 		return
 	}
-	stor.Add(storage.Record{Key: topic, Index: idx, Data: data})
+	audit, err := JwsMessageToProto(msg.Audit)
+	if err != nil {
+		return
+	}
+
+	record := proto.Record{Index: int32(idx), Message: &message, Audit: &audit}
+	stor.Add(topic, idx, record)
 
 	// Optional
 	if requestIdStr, ok := r.URL.Query()["request_id"]; ok {
@@ -158,17 +198,31 @@ type GetTopicResponse struct {
 
 func GetTopicHandler(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-	topic := params["topic"]
+	tbytes, err := base64.StdEncoding.DecodeString(params["topic"])
+	var topic storage.RecordTopic
+	copy(topic[:], tbytes)
 
-	records := stor.GetAll(topic)
+	records, err := stor.GetAll(topic)
+	if err != nil {
+		return
+	}
 	ret := GetTopicResponse{
-		Records: make([]RecordContents, len(records)),
+		Records: make([]RecordContents, 0, len(records)),
 	}
 
-	for idx, record := range records {
-		var msg RecordContents
-		json.Unmarshal(record.Data, msg)
-		ret.Records[idx] = msg
+	for _, record := range records {
+		msg, err := ProtoMessageToJws(record.Message)
+		if err != nil {
+			return
+		}
+		audit, err := ProtoMessageToJws(record.Audit)
+		if err != nil {
+			return
+		}
+		ret.Records = append(ret.Records, RecordContents{
+			Message: msg,
+			Audit: audit,
+		})
 	}
 
 	var encoded, _ = json.MarshalIndent(ret, "", "  ")
