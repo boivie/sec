@@ -76,8 +76,8 @@ func (s LevelDbStorage) GetOne(topic RecordTopic, index RecordIndex) (proto.Reco
 
 func (s LevelDbStorage) GetAll(topic RecordTopic) ([]proto.Record, error) {
 	last := s.getLastRecordNbr(topic)
-	if last == 0 {
+	if last == -1 {
 		return []proto.Record{}, nil
 	}
-	return s.Get(topic, 1, last)
+	return s.Get(topic, 0, last + 1)
 }

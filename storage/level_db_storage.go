@@ -3,13 +3,11 @@ package storage
 import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"fmt"
-	"encoding/hex"
 	"github.com/golang/protobuf/proto"
 	"math"
 	. "github.com/boivie/sec/proto"
+	"encoding/binary"
 )
-
-const KEY_FORMAT = "r:%64s:%08x"
 
 type LevelDbStorage struct {
 	db                   *leveldb.DB
@@ -29,14 +27,20 @@ func (s LevelDbStorage) getLastRecordNbr(topic RecordTopic) RecordIndex {
 	if !q.Prev() {
 		return -1
 	}
-	var topic16 string
-	var idx RecordIndex
-	fmt.Sscan(KEY_FORMAT, &topic16, &idx)
-	return idx
+	var foundTopic RecordTopic
+	copy(foundTopic[:], q.Key())
+	idx := binary.BigEndian.Uint32(q.Key()[32:36])
+	if foundTopic != topic {
+		return -1
+	}
+	return RecordIndex(idx)
 }
 
 func getKey(topic RecordTopic, index RecordIndex) []byte {
-	return []byte(fmt.Sprintf(KEY_FORMAT, hex.EncodeToString(topic[:]), index))
+	ret := make([]byte, 32 + 4)
+	copy(ret, topic[:])
+	binary.BigEndian.PutUint32(ret[32:], uint32(index))
+	return ret
 }
 
 func (s LevelDbStorage) add(topic RecordTopic, index RecordIndex, record Record) (err error) {
