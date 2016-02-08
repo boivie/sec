@@ -177,7 +177,7 @@ func AuditorStoreHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	record := proto.Record{Index: int32(idx), Message: &message, Audit: &audit}
-	stor.Add(topic, idx, record)
+	stor.Add(topic, &record)
 
 	// Optional
 	if requestIdStr, ok := r.URL.Query()["request_id"]; ok {

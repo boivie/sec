@@ -12,7 +12,7 @@ func CreatePublicKey(pub *rsa.PublicKey, kid string) JsonWebKey {
 	return JsonWebKey{
 		Kid: kid,
 		Kty: "RSA",
-		N:   base64URLEncode(pub.N.Bytes()),
-		E:   base64URLEncode(bytes.TrimLeft(e, "\x00")),
+		N:   Base64URLEncode(pub.N.Bytes()),
+		E:   Base64URLEncode(bytes.TrimLeft(e, "\x00")),
 	}
 }

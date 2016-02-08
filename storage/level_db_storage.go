@@ -43,15 +43,15 @@ func getKey(topic RecordTopic, index RecordIndex) []byte {
 	return ret
 }
 
-func (s LevelDbStorage) add(topic RecordTopic, index RecordIndex, record Record) (err error) {
-	lastIndex := s.getLastRecordNbr(topic)
-	if index != (lastIndex + 1) {
-		err = fmt.Errorf("Index requested %d, should be %d", index, lastIndex + 1)
+func (s LevelDbStorage) add(topic RecordTopic, record *Record) (err error) {
+	lastIndex := int32(s.getLastRecordNbr(topic))
+	if record.Index != (lastIndex + 1) {
+		err = fmt.Errorf("Index requested %d, should be %d", record.Index, lastIndex + 1)
 	} else {
 		batch := new(leveldb.Batch)
-		data, err := proto.Marshal(&record)
+		data, err := proto.Marshal(record)
 		if err == nil {
-			batch.Put(getKey(topic, index), data)
+			batch.Put(getKey(topic, RecordIndex(record.Index)), data)
 			err = s.db.Write(batch, nil)
 		}
 	}
@@ -80,7 +80,7 @@ func (s LevelDbStorage) monitor() {
 		case c := <-s.getLastRecordNbrChan:
 			c.resp <- s.getLastRecordNbr(c.topic)
 		case c := <-s.addChan:
-			c.reply <- s.add(c.topic, c.index, c.record)
+			c.reply <- s.add(c.topic, c.record)
 		case c := <-s.getChan:
 			r, e := s.get(c.topic, c.from, c.to)
 			c.reply <- getresp{r, e}

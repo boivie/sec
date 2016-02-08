@@ -14,7 +14,7 @@ func (s *FixedSizeB64Nonce)Nonce() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return base64URLEncode(b), nil
+	return Base64URLEncode(b), nil
 }
 
 func NewFixedSizeB64(bits int) jose.NonceSource {

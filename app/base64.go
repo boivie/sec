@@ -4,7 +4,7 @@ import (
 	"strings"
 )
 
-func base64URLEncode(data []byte) string {
+func Base64URLEncode(data []byte) string {
 	var result = base64.URLEncoding.EncodeToString(data)
 	return strings.TrimRight(result, "=")
 }

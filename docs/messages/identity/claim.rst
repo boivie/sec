@@ -1,18 +1,14 @@
 identity.claim
 ==============
 
-{{% started %}}[identity.offer]({{< relref "messages/identity/offer.md" >}}){{% /started %}}
+..note:: Only one message of the type ``identity.claim`` can exist in a given topic.
 
-NOTE: Only one message of the type ``identity.claim`` can exist in a given topic.
+..todo:: Should this be signed by the account key instead?
 
 Payload, mandatory fields
 -------------------------
 
 * ``resource`` (string): Set to "identity.claim"
-* ``at`` (timestamp): The timestamp when this message was created, specified
-  as milliseconds since 1970-01-01 00:00:00 UTC. Note that servers may reject
-  a message with a timestamp that is too far in the past or future.
-* ``public_key`` (JSON object): Public key object.
 * ``oob_hash`` (base64): Optional hashed out-of-bounds data, described below.
 
 Notes about oob_proof
@@ -36,17 +32,7 @@ Showing the protected JWS header and payload.
 
     {
       "alg": "RS256",
-      "kid": "FjeYMznaw89BSwJpQP7koCgPB7iiSPNpLjf2dpv2RiLV",
-      "nonce": "nliwch3bv2pallp95vrukktzjcd+dz7tpdybya0ijmc="
-    }
-
-    {
-      "resource": "identity.claim",
-      "topic": "FLprEtiKrK6ht5b3kziCACzzhX9cR2me99vUaysexb4d",
-      "index": 1,
-      "parent": "0eInsyhvWgJpM+2i0gw2AkrML8HdKxS+5Y4h4nTdo8c=",
-      "at": 1434806059000,
-      "public_key": {
+      "jwk": {
         "kty": "RSA",
         "n": "vrjOfz9Ccdgx5nQudyhdoR17V-IubWMeOZCwX_jj0hgAsz2J_pqYW08
               PLbK_PdiVGKPrqzmDIsLI7sA25VEnHU1uCLNwBuUiCO11_-7dYbsr4iJmG0Q
@@ -56,5 +42,14 @@ Showing the protected JWS header and payload.
               VfJb6jJVWRpl2SUtCnYG2C32qvbWbjZ_jBPD5eunqsIo1vQ",
         "e": "AQAB"
       },
+      "nonce": "nliwch3bv2pallp95vrukktzjcd+dz7tpdybya0ijmc="
+    }
+
+    {
+      "resource": "identity.claim",
+      "topic": "FLprEtiKrK6ht5b3kziCACzzhX9cR2me99vUaysexb4d",
+      "index": 1,
+      "parent": "0eInsyhvWgJpM+2i0gw2AkrML8HdKxS+5Y4h4nTdo8c=",
+      "at": 1434806059000,
       "oob_hash": "KMjiwHJayytCOAxaFjR3g+N2Kwq18pZYUdpjMAZkqaE="
     }
