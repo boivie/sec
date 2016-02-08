@@ -2,7 +2,6 @@ package storage
 import (
 	"errors"
 	"github.com/boivie/sec/proto"
-	"fmt"
 )
 
 type getRecordIndex struct {
@@ -51,7 +50,6 @@ func (s LevelDbStorage) GetLastRecordNbr(topic RecordTopic) (ret RecordIndex) {
 }
 
 func (s LevelDbStorage) Add(topic RecordTopic, record *proto.Record) (err error) {
-	fmt.Printf("Added %s to %s:%d\n", record.Type, topic.Base58(), record.Index)
 	myc := make(chan error)
 	s.addChan <- &add{topic, record, myc}
 	return <-myc

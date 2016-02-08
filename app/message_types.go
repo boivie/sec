@@ -22,18 +22,27 @@ type JsonWebKey struct {
 	E   string `json:"e,omitempty"`
 }
 
-type Root struct {
-	PublicKey JsonWebKey `json:"public_key"`
+type KeyUsageAuditor struct{}
+type KeyUsageIssueIdentities struct{}
+type KeyUsageRequestSigning struct{}
+type KeyUsagePerformSigning struct{}
+
+type KeyUsage struct {
+	Auditor         *KeyUsageAuditor `json:"auditor,omitempty"`
+	IssueIdentities *KeyUsageIssueIdentities `json:"issue_identities,omitempty"`
+	RequestSigning  *KeyUsageRequestSigning `json:"request_signing,omitempty"`
+	PerformSigning  *KeyUsagePerformSigning `json:"perform_signing,omitempty"`
 }
 
-type MessageTypeRootConfigRoots struct {
-	AuditorRoots  []Root `json:"auditor_roots"`
-	IdentityRoots []Root `json:"identity_roots"`
+type RootKey struct {
+	Identifier string `json:"identifier"`
+	PublicKey  JsonWebKey `json:"public_key"`
+	Usage      KeyUsage `json:"usage"`
 }
 
 type MessageTypeRootConfig struct {
 	MessageTypeCommon
-	Roots MessageTypeRootConfigRoots `json:"roots"`
+	Keys []RootKey `json:"keys"`
 }
 
 func initializeFromParent(target *MessageTypeCommon, parent *proto.Record) {
@@ -77,6 +86,7 @@ func (m *MessageTypeIdentityOffer) Initialize(parent *proto.Record) {
 
 type MessageTypeIdentityClaim struct {
 	MessageTypeCommon
+	PublicKey JsonWebKey `json:"public_key"`
 }
 
 func (m *MessageTypeIdentityClaim) Initialize(parent *proto.Record) {
@@ -87,7 +97,7 @@ func (m *MessageTypeIdentityClaim) Initialize(parent *proto.Record) {
 type MessageTypeIdentityIssue struct {
 	MessageTypeCommon
 	Title     string `json:"title"`
-	PublicKey *JsonWebKey `json:"public_key"`
+	PublicKey JsonWebKey `json:"public_key"`
 	Path      string `json:"path"`
 }
 
