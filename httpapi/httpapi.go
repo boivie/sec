@@ -86,7 +86,7 @@ func StoreMessagesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	root, err := getRoot(&message)
+	root, err := getRoot(message)
 	if err != nil {
 		http.Error(w, "Unknown resource", http.StatusBadRequest)
 		return
@@ -99,7 +99,7 @@ func StoreMessagesHandler(w http.ResponseWriter, r *http.Request) {
 
 	reply := make(chan error, 1)
 	aud <- auditor.AuditorRequest{
-		Message: &message,
+		Message: message,
 		Reply: reply,
 	}
 
@@ -112,7 +112,8 @@ func StoreMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func JwsMessageToProto(in Jws) (msg proto.Message, err error) {
+func JwsMessageToProto(in Jws) (msg *proto.Message, err error) {
+	*msg = proto.Message{}
 	msg.Header, err = json.Marshal(in.Header)
 	if err != nil {
 		return
