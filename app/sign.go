@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 )
 
-func CreateAndSign(cfg MessageType, jwkKey *jose.JsonWebKey, parent *Record) (*Record, error) {
-	cfg.Initialize(parent)
+func CreateAndSign(cfg MessageType, jwkKey *jose.JsonWebKey, root *storage.RecordTopic, parent *Record) (*Record, error) {
+	cfg.Initialize(root, parent)
 
 	payload := SerializeJSON(cfg)
 

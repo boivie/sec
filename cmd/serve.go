@@ -8,6 +8,8 @@ import (
 	"os"
 	"fmt"
 	"github.com/op/go-logging"
+	"github.com/boivie/sec/auditor"
+	"github.com/boivie/sec/app"
 )
 
 var (
@@ -23,6 +25,14 @@ var CmdServe = cli.Command{
 			Name: "listen",
 			Value: ":8080",
 			Usage: "Address and port to listen on",
+		},
+		cli.StringFlag{
+			Name: "auditor_key",
+			Usage: "Auditor private key filename (PEM)",
+		},
+		cli.StringFlag{
+			Name: "auditor_id",
+			Usage: "Auditor identity",
 		},
 	},
 	Action: cmdServe,
@@ -43,14 +53,31 @@ func cmdServe(c *cli.Context) {
 	if err != nil {
 		panic("Failed to open storage")
 	}
-	a := func() {
-		rtr := mux.NewRouter()
-		httpapi.Register(rtr, stor)
-		http.Handle("/", rtr)
-		listen := c.String("listen")
-		log.Info("HTTP listening on %s\n", listen)
-		http.ListenAndServe(listen, nil)
+
+	if c.IsSet("auditor_id") {
+		keyId, err := app.ParseKeyId(c.String("auditor_id"))
+		if err != nil {
+			panic(err)
+		}
+		priv, err := app.LoadKeyFromFile(c.String("auditor_key"))
+		if err != nil {
+			panic(err)
+		}
+
+		auditor := auditor.Create(auditor.AuditorConfig{
+			KeyId: keyId,
+			PrivateKey: priv,
+			Backend: stor,
+		})
+		httpapi.AddAuditor(keyId.Topic, auditor)
 	}
-	go a()
+
+	rtr := mux.NewRouter()
+	httpapi.Register(rtr, stor)
+	http.Handle("/", rtr)
+	listen := c.String("listen")
+	log.Info("HTTP listening on %s\n", listen)
+
+	go http.ListenAndServe(listen, nil)
 	signalHandler()
 }

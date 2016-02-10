@@ -8,8 +8,8 @@ import (
 	"crypto/rsa"
 	"crypto/rand"
 	"github.com/codegangsta/cli"
-	"encoding/pem"
 	"crypto/x509"
+	"encoding/pem"
 	"os"
 )
 
@@ -25,21 +25,10 @@ func cmdInit(c *cli.Context) {
 		panic(err)
 	}
 
-	p := pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)}
-
-	rootKeyFname := "root-key.pem"
-	keyOut, err := os.OpenFile(rootKeyFname, os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0600)
-	if err != nil {
-		panic(err)
-	}
-	pem.Encode(keyOut, &p)
-	keyOut.Close()
-	fmt.Printf("Wrote root key to %s\n", rootKeyFname)
-
 	cfg := app.MessageTypeRootConfig{}
 	cfg.Keys = []app.RootKey{
 		app.RootKey{
-			Identifier: "@root/key0",
+			Identifier: "key1",
 			PublicKey: app.CreatePublicKey(&privateKey.PublicKey, ""),
 			Usage: app.KeyUsage{
 				Auditor: &app.KeyUsageAuditor{},
@@ -51,7 +40,6 @@ func cmdInit(c *cli.Context) {
 
 	jwkKey := &jose.JsonWebKey{
 		Key: privateKey,
-		KeyID: "@root/root",
 	}
 
 	stor, err := storage.New()
@@ -59,7 +47,7 @@ func cmdInit(c *cli.Context) {
 		panic(err)
 	}
 
-	rootRecord, err := app.CreateAndSign(&cfg, jwkKey, nil)
+	rootRecord, err := app.CreateAndSign(&cfg, jwkKey, nil, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -67,4 +55,17 @@ func cmdInit(c *cli.Context) {
 	topic := app.GetTopic(rootRecord.Message)
 	stor.Add(topic, rootRecord)
 	fmt.Printf("Created root %s\n", topic.Base58())
+
+	p := pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)}
+
+	rootKeyFname := fmt.Sprintf("root-%s.pem", topic.Base58())
+	keyOut, err := os.OpenFile(rootKeyFname, os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0600)
+	if err != nil {
+		panic(err)
+	}
+	pem.Encode(keyOut, &p)
+	keyOut.Close()
+	fmt.Printf("Wrote root key to %s\n", rootKeyFname)
+	fmt.Printf("\nStart a local daemon by running:\n")
+	fmt.Printf("%s serve --auditor_id=%s/key1 --auditor_key=root-%s.pem\n", os.Args[0], topic.Base58(), topic.Base58())
 }

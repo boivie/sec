@@ -6,115 +6,113 @@ import (
 	"net/http"
 	"io/ioutil"
 	"github.com/op/go-logging"
-	"sync"
-	"fmt"
 	"strconv"
 	"github.com/boivie/sec/storage"
 	"encoding/json"
 	"encoding/base64"
 	"github.com/boivie/sec/proto"
+	"github.com/boivie/sec/auditor"
+	"github.com/boivie/sec/app"
+	"errors"
 )
 
-type Request struct {
-	body      []byte
-	requestId int64
-}
 
 var stor storage.RecordStorage
 
 var (
-	lock sync.Mutex
-	auditor chan Request
-	responses map[int64]chan bool = make(map[int64]chan bool)
-	lastId int64
+	auditors = make(map[storage.RecordTopic]chan auditor.AuditorRequest)
 )
 var log = logging.MustGetLogger("lovebeat")
 
-type jws_header struct {
+func AddAuditor(id storage.RecordTopic, requests chan auditor.AuditorRequest) {
+	log.Info("Adding auditor for %s\n", id.Base58())
+	auditors[id] = requests
+}
+
+type JwsHeader struct {
 	Alg string `json:"alg"`
 }
-type jws struct {
-	Header    jws_header `json:"header"`
+type Jws struct {
+	Header    JwsHeader `json:"header"`
 	Protected string `json:"protected"`
 	Payload   string `json:"payload"`
 	Signature string `json:"signature"`
 }
 
-func createResponse() (int64, chan bool) {
-	response := make(chan bool, 1)
+func getRoot(msg *proto.Message) (topic storage.RecordTopic, err error) {
+	var header app.MessageTypeCommon
+	if err = json.Unmarshal(msg.Payload, &header); err != nil {
+		return
+	}
 
-	lock.Lock()
-	defer lock.Unlock()
+	if header.Topic != "" {
+		topic, err = storage.DecodeTopic(header.Topic)
+		if err != nil {
+			return
+		}
 
-	lastId = lastId + 1
-	requestId := lastId
-	responses[requestId] = response
-	return requestId, response
+		var first proto.Record
+		if first, err = stor.GetOne(topic, 0); err != nil {
+			return
+		}
+
+		if err = json.Unmarshal(first.Message.Payload, &header); err != nil {
+			return
+		}
+	}
+
+	if header.Root == "" {
+		err = errors.New("Unknown topic")
+		return
+	}
+	topic, err = storage.DecodeTopic(header.Root)
+	return
 }
 
 func StoreMessagesHandler(w http.ResponseWriter, r *http.Request) {
 	log.Debug("Got connection to store")
 	body, _ := ioutil.ReadAll(r.Body)
 
-	requestId, response := createResponse()
-
-	auditor <- Request{
-		body: body,
-		requestId: requestId,
+	var jwsMsg Jws
+	err := json.Unmarshal(body, &jwsMsg)
+	if err != nil {
+		http.Error(w, "Failed to parse JSON", http.StatusBadRequest)
+		return
 	}
-	log.Debug("Waiting for response from auditor")
-	okey := <-response
-	if okey {
+
+	message, err := JwsMessageToProto(jwsMsg)
+	if err != nil {
+		http.Error(w, "Failed to parse JWS message", http.StatusBadRequest)
+		return
+	}
+
+	root, err := getRoot(&message)
+	if err != nil {
+		http.Error(w, "Unknown resource", http.StatusBadRequest)
+		return
+	}
+	aud, ok := auditors[root]
+	if !ok {
+		http.Error(w, "Service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	reply := make(chan error, 1)
+	aud <- auditor.AuditorRequest{
+		Message: &message,
+		Reply: reply,
+	}
+
+	err = <-reply
+	if err == nil {
 		w.Header().Set("Content-Length", "3")
 		io.WriteString(w, "{}\n")
 	} else {
-		w.Header().Set("Content-Length", "6")
-		io.WriteString(w, "{BAD}\n")
+		http.Error(w, "Bad request", http.StatusBadRequest)
 	}
 }
 
-func AuditorListenHandler(w http.ResponseWriter, r *http.Request) {
-	log.Debug("Got connection from auditor")
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		panic("expected http.ResponseWriter to be an http.Flusher")
-	}
-	auditor = make(chan Request, 1)
-	for {
-		req := <-auditor
-		fmt.Fprintf(w, "%d\n%s\n", req.requestId, req.body)
-		flusher.Flush()
-	}
-}
-
-func getResponse(requestId int64) chan bool {
-	lock.Lock()
-	defer lock.Unlock()
-	response, ok := responses[requestId]
-	if ok {
-		delete(responses, requestId)
-	}
-	return response
-}
-
-func getTopicIndex(msg RecordContents) (topic storage.RecordTopic, index storage.RecordIndex, err error) {
-	if data, err := base64.StdEncoding.DecodeString(msg.Audit.Payload); err == nil {
-		var auditMsg struct {
-			Topic string `json:"topic"`
-			Index storage.RecordIndex `json:"index"`
-		}
-
-		if err = json.Unmarshal(data, &auditMsg); err == nil {
-			var tbytes []byte
-			tbytes, err = base64.StdEncoding.DecodeString(auditMsg.Topic)
-			copy(topic[:], tbytes)
-			index = auditMsg.Index
-		}
-	}
-	return
-}
-
-func JwsMessageToProto(in jws) (msg proto.Message, err error) {
+func JwsMessageToProto(in Jws) (msg proto.Message, err error) {
 	msg.Header, err = json.Marshal(in.Header)
 	if err != nil {
 		return
@@ -135,7 +133,7 @@ func JwsMessageToProto(in jws) (msg proto.Message, err error) {
 	return
 }
 
-func ProtoMessageToJws(in *proto.Message) (out jws, err error) {
+func ProtoMessageToJws(in *proto.Message) (out Jws, err error) {
 	err = json.Unmarshal(in.Header, &out.Header)
 	if err == nil {
 		out.Protected = base64.StdEncoding.EncodeToString(in.Protected)
@@ -146,50 +144,8 @@ func ProtoMessageToJws(in *proto.Message) (out jws, err error) {
 }
 
 type RecordContents struct {
-	Message jws `json:"message"`
-	Audit   jws `json:"audit"`
-}
-
-func AuditorStoreHandler(w http.ResponseWriter, r *http.Request) {
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		return
-	}
-	var msg RecordContents
-	err = json.Unmarshal(body, msg)
-	if err != nil {
-		return
-	}
-
-	topic, idx, err := getTopicIndex(msg)
-
-	if err != nil {
-		return
-	}
-
-	message, err := JwsMessageToProto(msg.Message)
-	if err != nil {
-		return
-	}
-	audit, err := JwsMessageToProto(msg.Audit)
-	if err != nil {
-		return
-	}
-
-	record := proto.Record{Index: int32(idx), Message: &message, Audit: &audit}
-	stor.Add(topic, &record)
-
-	// Optional
-	if requestIdStr, ok := r.URL.Query()["request_id"]; ok {
-		if requestId, err := strconv.ParseInt(requestIdStr[0], 10, 64); err == nil {
-			if response := getResponse(requestId); response != nil {
-				response <- true
-			}
-		}
-	}
-
-	w.Header().Set("Content-Length", "3")
-	io.WriteString(w, "{}\n")
+	Message Jws `json:"message"`
+	Audit   Jws `json:"audit"`
 }
 
 type GetTopicResponse struct {
@@ -235,8 +191,6 @@ func GetTopicHandler(w http.ResponseWriter, r *http.Request) {
 
 func Register(rtr *mux.Router, stor_ storage.RecordStorage) {
 	stor = stor_
-	rtr.HandleFunc("/api/v1/store", StoreMessagesHandler).Methods("POST")
-	rtr.HandleFunc("/api/v1/auditor/listen", AuditorListenHandler).Methods("GET")
-	rtr.HandleFunc("/api/v1/auditor/store/{request_id:[a-z0-9.-]+}", AuditorStoreHandler).Methods("POST")
-	rtr.HandleFunc("/api/v1/topics/{topic:[A-Za-z0-9]+}", GetTopicHandler).Methods("POST")
+	rtr.HandleFunc("/store", StoreMessagesHandler).Methods("POST")
+	rtr.HandleFunc("/topics/{topic:[A-Za-z0-9]+}", GetTopicHandler).Methods("POST")
 }

@@ -4,10 +4,13 @@ import (
 	"github.com/boivie/sec/proto"
 	"encoding/json"
 	"crypto/sha256"
+	"github.com/boivie/sec/storage"
 )
 
 type MessageTypeCommon struct {
 	Resource string `json:"resource"`
+	Root     string `json:"root,omitempty"`
+	Topic    string `json:"topic,omitempty"`
 	Index    int32 `json:"index,omitempty"`
 	Parent   string `json:"parent,omitempty"`
 	At       int64 `json:"at"`
@@ -45,7 +48,10 @@ type MessageTypeRootConfig struct {
 	Keys []RootKey `json:"keys"`
 }
 
-func initializeFromParent(target *MessageTypeCommon, parent *proto.Record) {
+func initializeFromParent(target *MessageTypeCommon, root *storage.RecordTopic, parent *proto.Record) {
+	if root != nil {
+		target.Root = root.Base58()
+	}
 	target.At = time.Now().UnixNano() / 1000000
 	if parent == nil {
 		target.Index = 0
@@ -60,18 +66,18 @@ func initializeFromParent(target *MessageTypeCommon, parent *proto.Record) {
 }
 
 
-func (m *MessageTypeRootConfig) Initialize(parent *proto.Record) {
+func (m *MessageTypeRootConfig) Initialize(root *storage.RecordTopic, parent *proto.Record) {
 	m.Resource = "root.config"
-	initializeFromParent(&m.MessageTypeCommon, parent)
+	initializeFromParent(&m.MessageTypeCommon, root, parent)
 }
 
 type MessageTypeAccountCreate struct {
 	MessageTypeCommon
 }
 
-func (m *MessageTypeAccountCreate) Initialize(parent *proto.Record) {
+func (m *MessageTypeAccountCreate) Initialize(root *storage.RecordTopic, parent *proto.Record) {
 	m.Resource = "account.create"
-	initializeFromParent(&m.MessageTypeCommon, parent)
+	initializeFromParent(&m.MessageTypeCommon, root, nil)
 }
 
 type MessageTypeIdentityOffer struct {
@@ -79,9 +85,9 @@ type MessageTypeIdentityOffer struct {
 	Title string `json:"title"`
 }
 
-func (m *MessageTypeIdentityOffer) Initialize(parent *proto.Record) {
+func (m *MessageTypeIdentityOffer) Initialize(root *storage.RecordTopic, parent *proto.Record) {
 	m.Resource = "identity.offer"
-	initializeFromParent(&m.MessageTypeCommon, parent)
+	initializeFromParent(&m.MessageTypeCommon, root, nil)
 }
 
 type MessageTypeIdentityClaim struct {
@@ -89,9 +95,9 @@ type MessageTypeIdentityClaim struct {
 	PublicKey JsonWebKey `json:"public_key"`
 }
 
-func (m *MessageTypeIdentityClaim) Initialize(parent *proto.Record) {
+func (m *MessageTypeIdentityClaim) Initialize(root *storage.RecordTopic, parent *proto.Record) {
 	m.Resource = "identity.claim"
-	initializeFromParent(&m.MessageTypeCommon, parent)
+	initializeFromParent(&m.MessageTypeCommon, root, parent)
 }
 
 type MessageTypeIdentityIssue struct {
@@ -101,16 +107,17 @@ type MessageTypeIdentityIssue struct {
 	Path      string `json:"path"`
 }
 
-func (m *MessageTypeIdentityIssue) Initialize(parent *proto.Record) {
+func (m *MessageTypeIdentityIssue) Initialize(root *storage.RecordTopic, parent *proto.Record) {
 	m.Resource = "identity.issue"
-	initializeFromParent(&m.MessageTypeCommon, parent)
+	initializeFromParent(&m.MessageTypeCommon, root, parent)
 }
 
 type MessageType interface {
-	Initialize(parent *proto.Record)
+	Initialize(root *storage.RecordTopic, parent *proto.Record)
 	Header() *MessageTypeCommon
 }
 
 func (m *MessageTypeCommon) Header() *MessageTypeCommon {
 	return m
 }
+
