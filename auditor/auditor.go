@@ -31,14 +31,10 @@ func addMessage(cfg *AuditorConfig, message *proto.Message, header *app.MessageT
 	}
 	// Validate index
 
-	audit := proto.Message{
-	}
-
 	record := proto.Record{
 		Index: header.Index,
 		Type: header.Resource,
 		Message: message,
-		Audit: &audit,
 	}
 
 	err = cfg.Backend.Add(topic, &record)

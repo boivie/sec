@@ -56,12 +56,17 @@ func initializeFromParent(target *MessageTypeCommon, root *storage.RecordTopic, 
 	if parent == nil {
 		target.Index = 0
 	} else {
-		signatureHash := sha256.Sum256(parent.Message.Signature)
+		var parentTopic storage.RecordTopic = sha256.Sum256(parent.Message.Signature)
 
 		var parentHeader MessageTypeCommon
 		json.Unmarshal(parent.Message.Payload, &parentHeader)
 		target.Index = parentHeader.Index + 1
-		target.Parent = Base64URLEncode(signatureHash[:])
+		target.Parent = Base64URLEncode(parentTopic[:])
+		if parentHeader.Topic != "" {
+			target.Topic = parentHeader.Topic
+		} else {
+			target.Topic = parentTopic.Base58()
+		}
 	}
 }
 

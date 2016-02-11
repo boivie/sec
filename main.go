@@ -23,6 +23,7 @@ func getCommands() []cli.Command {
 		cmd.CmdServe,
 		cmd.CmdAuditor,
 		cmd.CmdOfferIdentity,
+		cmd.CmdClaimIdentity,
 	}
 }
 
