@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"crypto/sha256"
 	"github.com/boivie/sec/storage"
+	"crypto/rsa"
+	"math/big"
+	"fmt"
 )
 
 type MessageTypeCommon struct {
@@ -23,6 +26,31 @@ type JsonWebKey struct {
 	Alg string `json:"alg,omitempty"`
 	N   string `json:"n,omitempty"`
 	E   string `json:"e,omitempty"`
+}
+
+func stringToBigInt(d string) (*big.Int, error) {
+	data, err := Base64URLDecode(d)
+	if err != nil {
+		fmt.Printf("Failed to base64: '%s' %v\n", d, err)
+		return nil, err
+	}
+	return new(big.Int).SetBytes(data), nil
+}
+
+func (key *JsonWebKey) ToPublicKey() (*rsa.PublicKey, error) {
+	N, err := stringToBigInt(key.N)
+	if err != nil {
+		return nil, err
+	}
+	E, err := stringToBigInt(key.E)
+	if err != nil {
+		return nil, err
+	}
+
+	return &rsa.PublicKey{
+		N: N,
+		E: int(E.Int64()),
+	}, nil
 }
 
 type KeyUsageAuditor struct{}

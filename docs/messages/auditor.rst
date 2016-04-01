@@ -1,7 +1,7 @@
-Auditor Signature
------------------
+Auditor State
+-------------
 
-The auditor signature is a JWS signature with the following:
+The auditor state is a JWS signature with the following:
 
 Unprotected JWS Header fields
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -19,11 +19,11 @@ Payload fields
 ~~~~~~~~~~~~~~
 
  * ``topic`` (string) The topic ID
- * ``index`` (number) The message index within the topic that this signature covers.
+ * ``index`` (number) The message index within the topic that this state covers.
  * ``parent`` (base64). The base64-encoded SHA256 of the previous message's
    signature. This field MUST NOT be present in the initial message for a given
    topic.
-* ``at``: (timestamp) The timestamp when this message was created, specified
+ * ``at``: (timestamp) The timestamp when this message was created, specified
    as milliseconds since 1970-01-01 00:00:00 UTC.
  * ``signature_hash``: (base64) The SHA256 of the JWS signature of the message signed.
 

@@ -13,6 +13,8 @@ Payload, mandatory fields
 * ``roots`` (JSON object)
 ** ``auditor_roots`` (JSON array of root keys): Valid keys to issue auditor identities.
 ** ``identity_roots`` (JSON array of root keys): Valid keys to issue identities.
+** ``auditor_seal_key`` (JWK key): Public key used to seal the AES-128-GCM
+   message keys.
 
 Root key
 --------

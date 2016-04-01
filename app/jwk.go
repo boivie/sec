@@ -40,7 +40,7 @@ func ParseKeyId(k string) (ret KeyId, err error) {
 	return
 }
 
-func LoadKeyFromFile(filename string) (jwk *jose.JsonWebKey, err error) {
+func LoadKeyFromFile(filename string, keyId string) (jwk *jose.JsonWebKey, err error) {
 	f, err := os.Open(filename)
 	if err != nil {
 		return
@@ -56,6 +56,6 @@ func LoadKeyFromFile(filename string) (jwk *jose.JsonWebKey, err error) {
 		return
 	}
 
-	jwk = &jose.JsonWebKey{Key: privateKey}
+	jwk = &jose.JsonWebKey{Key: privateKey, KeyID:keyId}
 	return
 }

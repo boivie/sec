@@ -30,7 +30,7 @@ func cmdClaim(c *cli.Context) {
 	if err != nil {
 		panic(err)
 	}
-	key, err := app.LoadKeyFromFile(c.String("key"))
+	key, err := app.LoadKeyFromFile(c.String("key"), "")
 
 	rs := httpapi.RemoteStorage{c.String("server")}
 	parents, err := rs.GetAll(offer)

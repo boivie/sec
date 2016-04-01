@@ -59,7 +59,7 @@ func cmdServe(c *cli.Context) {
 		if err != nil {
 			panic(err)
 		}
-		priv, err := app.LoadKeyFromFile(c.String("auditor_key"))
+		priv, err := app.LoadKeyFromFile(c.String("auditor_key"), c.String("auditor_id"))
 		if err != nil {
 			panic(err)
 		}

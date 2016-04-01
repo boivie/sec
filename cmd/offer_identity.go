@@ -45,8 +45,7 @@ func cmdOffer(c *cli.Context) {
 	msg.Title = c.Args()[0]
 	msg.MessageTypeCommon.Ref = c.String("ref")
 
-	key, err := app.LoadKeyFromFile(c.String("issuer_key"))
-	key.KeyID = c.String("issuer_id")
+	key, err := app.LoadKeyFromFile(c.String("issuer_key"), c.String("issuer_id"))
 
 	record, err := app.CreateAndSign(&msg, key, &root, nil)
 
