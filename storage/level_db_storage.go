@@ -20,7 +20,7 @@ type RecordHeader struct {
 	LastIndex RecordIndex
 }
 
-func (s LevelDbStorage) getLastRecordNbr(topic RecordTopic) RecordIndex {
+func (s LevelDbStorage) getLastRecordNbr(root RecordTopic, topic RecordTopic) RecordIndex {
 	q := s.db.NewIterator(nil, nil)
 	defer q.Release()
 	q.Seek(getKey(topic, math.MaxInt32))
@@ -43,8 +43,8 @@ func getKey(topic RecordTopic, index RecordIndex) []byte {
 	return ret
 }
 
-func (s LevelDbStorage) add(topic RecordTopic, record *Record) (err error) {
-	lastIndex := int32(s.getLastRecordNbr(topic))
+func (s LevelDbStorage) add(root RecordTopic, topic RecordTopic, record *Record) (err error) {
+	lastIndex := int32(s.getLastRecordNbr(root, topic))
 	if record.Index != (lastIndex + 1) {
 		err = fmt.Errorf("Index requested %d, should be %d", record.Index, lastIndex + 1)
 	} else {
@@ -58,7 +58,7 @@ func (s LevelDbStorage) add(topic RecordTopic, record *Record) (err error) {
 	return
 }
 
-func (s LevelDbStorage) get(topic RecordTopic, from RecordIndex, to RecordIndex) ([]Record, error) {
+func (s LevelDbStorage) get(root RecordTopic, topic RecordTopic, from RecordIndex, to RecordIndex) ([]Record, error) {
 	records := []Record{}
 	for idx := from; idx <= to; idx++ {
 		dbk := getKey(topic, idx)
@@ -78,11 +78,11 @@ func (s LevelDbStorage) monitor() {
 	for {
 		select {
 		case c := <-s.getLastRecordNbrChan:
-			c.resp <- s.getLastRecordNbr(c.topic)
+			c.resp <- s.getLastRecordNbr(c.root, c.topic)
 		case c := <-s.addChan:
-			c.reply <- s.add(c.topic, c.record)
+			c.reply <- s.add(c.root, c.topic, c.record)
 		case c := <-s.getChan:
-			r, e := s.get(c.topic, c.from, c.to)
+			r, e := s.get(c.root, c.topic, c.from, c.to)
 			c.reply <- getresp{r, e}
 		}
 	}

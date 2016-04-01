@@ -14,6 +14,10 @@ var CmdIssueIdentity = cli.Command{
 	Action: cmdIssue,
 	Flags: []cli.Flag{
 		cli.StringFlag{
+			Name: "root",
+			Usage: "Root",
+		},
+		cli.StringFlag{
 			Name: "server",
 			Value: "http://localhost:8080",
 			Usage: "Address and port to listen on",
@@ -30,14 +34,18 @@ var CmdIssueIdentity = cli.Command{
 }
 
 func cmdIssue(c *cli.Context) {
-	offer, err := storage.DecodeTopic(c.Args()[0])
+	root, err := storage.DecodeTopic(c.String("root"))
+	if err != nil {
+		panic(err)
+	}
+	offer, err := storage.DecodeTopicAndKey(c.Args()[0])
 	if err != nil {
 		panic(err)
 	}
 	key, err := app.LoadKeyFromFile(c.String("issuer_key"), c.String("issuer_id"))
 
-	rs := httpapi.RemoteStorage{c.String("server")}
-	parents, err := rs.GetAll(offer)
+	rs, _ := httpapi.NewRemoteStorage(c.String("server"))
+	parents, err := rs.GetAll(root, offer.RecordTopic)
 
 	if len(parents) == 0 {
 		fmt.Printf("Offer %s does not exist.\n", offer.Base58())
@@ -52,8 +60,9 @@ func cmdIssue(c *cli.Context) {
 		return
 	}
 
+	claimMsg, err := app.DecryptMessage(parents[1].EncryptedMessage, parents[1].Index, offer.Key)
 	var claim app.MessageTypeIdentityClaim
-	if json.Unmarshal(parents[1].Message.Payload, &claim) != nil {
+	if json.Unmarshal(claimMsg.Payload, &claim) != nil {
 		fmt.Printf("Couldn't parse claim\n")
 		return
 	}
@@ -69,9 +78,9 @@ func cmdIssue(c *cli.Context) {
 	msg.Title = "Test Identity"
 	msg.Path = "/test/1"
 
-	record, err := app.CreateAndSign(&msg, key, nil, &parents[1])
+	record, err := app.CreateSignAndEncrypt(&msg, key, &root, &claimMsg, offer.RecordTopic, offer.Key)
 
-	err = rs.Add(offer, record)
+	err = rs.Add(root, &offer.RecordTopic, 2, record.EncryptedMessage, offer.Key)
 	if err != nil {
 		panic(err)
 	}

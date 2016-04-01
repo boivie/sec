@@ -14,6 +14,10 @@ var CmdClaimIdentity = cli.Command{
 	Action: cmdClaim,
 	Flags: []cli.Flag{
 		cli.StringFlag{
+			Name: "root",
+			Usage: "Root",
+		},
+		cli.StringFlag{
 			Name: "server",
 			Value: "http://localhost:8080",
 			Usage: "Address and port to listen on",
@@ -26,14 +30,18 @@ var CmdClaimIdentity = cli.Command{
 }
 
 func cmdClaim(c *cli.Context) {
-	offer, err := storage.DecodeTopic(c.Args()[0])
+	root, err := storage.DecodeTopic(c.String("root"))
+	if err != nil {
+		panic(err)
+	}
+	offer, err := storage.DecodeTopicAndKey(c.Args()[0])
 	if err != nil {
 		panic(err)
 	}
 	key, err := app.LoadKeyFromFile(c.String("key"), "")
 
-	rs := httpapi.RemoteStorage{c.String("server")}
-	parents, err := rs.GetAll(offer)
+	rs, _ := httpapi.NewRemoteStorage(c.String("server"))
+	parents, err := rs.GetAll(root, offer.RecordTopic)
 
 	if len(parents) == 0 {
 		fmt.Printf("Offer %s does not exist.\n", offer.Base58())
@@ -44,12 +52,17 @@ func cmdClaim(c *cli.Context) {
 		return
 	}
 
+	offerMsg, err := app.DecryptMessage(parents[0].EncryptedMessage, parents[0].Index, offer.Key)
+	if err != nil {
+		panic(err)
+	}
+
 	msg := app.MessageTypeIdentityClaim{}
 	msg.PublicKey = app.CreatePublicKey(&key.Key.(*rsa.PrivateKey).PublicKey, "")
 
-	record, err := app.CreateAndSign(&msg, key, nil, &parents[0])
+	record, err := app.CreateSignAndEncrypt(&msg, key, &root, &offerMsg, offer.RecordTopic, offer.Key)
 
-	err = rs.Add(offer, record)
+	err = rs.Add(root, &offer.RecordTopic, 1, record.EncryptedMessage, offer.Key)
 	if err != nil {
 		panic(err)
 	}

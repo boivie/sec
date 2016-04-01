@@ -11,6 +11,14 @@ message Message {
 message Record {
   int32 index = 1;
   string type = 2;
-  Message message = 3;
-  Message audit = 4;
+
+  // Serialized 'Message', AES-128-GCM encrypted using the initial message's signature
+  // nonce = "0 (32 bits), 0 (32-bits, big endian) index (32-bit, big endian)"
+  // tag is appended.
+  bytes encrypted_message = 3;
+
+  // Serialized 'Message', AES-128-GCM encrypted using the initial message's signature
+  // nonce = "0 (32 bits), 1 (32-bits, big endian) index (32-bit, big endian)"
+  // tag is appended.
+  bytes encrypted_audit = 5;
 }

@@ -1,10 +1,13 @@
 package auditor
 import (
 	"github.com/boivie/sec/storage"
-	"github.com/boivie/sec/proto"
 	"github.com/boivie/sec/app"
 	"encoding/json"
 	jose "github.com/square/go-jose"
+	"github.com/syndtr/goleveldb/leveldb/errors"
+	"crypto/sha256"
+	. "github.com/boivie/sec/proto"
+	"fmt"
 )
 
 type AuditorConfig struct {
@@ -14,30 +17,51 @@ type AuditorConfig struct {
 }
 
 type AuditorRequest struct {
-	Reply   chan error
-	Message *proto.Message
+	Reply            chan error
+	Root             storage.RecordTopic
+	Topic            *storage.RecordTopic
+	Index            int32
+	EncryptedMessage []byte
+	Key              []byte
 }
 
-func addMessage(cfg *AuditorConfig, message *proto.Message, header *app.MessageTypeCommon) (err error) {
+func addMessage(cfg *AuditorConfig, req AuditorRequest) (err error) {
+	message, err := app.DecryptMessage(req.EncryptedMessage, req.Index, req.Key)
+	if err != nil {
+		return errors.New("Failed to decrypt message");
+	}
+	var header app.MessageTypeCommon
+	err = json.Unmarshal(message.Payload, &header)
+	if err != nil {
+		return
+	}
+
 	// Validate topic
 	var topic storage.RecordTopic
-	if header.Topic != "" {
+	if req.Topic != nil {
 		topic, err = storage.DecodeTopic(header.Topic)
 		if err != nil {
 			return
 		}
+		if topic.Base58() != req.Topic.Base58() {
+			return fmt.Errorf("Topic in message doesn't match %s <-> %s", topic.Base58(), req.Topic.Base58())
+		}
 	} else {
-		topic = app.GetTopic(message)
+		topic = sha256.Sum256(req.EncryptedMessage)
 	}
-	// Validate index
 
-	record := proto.Record{
+	// TODO: Validate a lot more
+
+	var encryptedAudit []byte
+
+	record := Record{
 		Index: header.Index,
 		Type: header.Resource,
-		Message: message,
+		EncryptedMessage: req.EncryptedMessage,
+		EncryptedAudit: encryptedAudit,
 	}
 
-	err = cfg.Backend.Add(topic, &record)
+	err = cfg.Backend.Store(req.Root, topic, &record)
 	return
 }
 
@@ -45,12 +69,7 @@ func Create(cfg AuditorConfig) chan AuditorRequest {
 	requests := make(chan AuditorRequest, 100)
 	worker := func() {
 		for req := range requests {
-			var header app.MessageTypeCommon
-			if err := json.Unmarshal(req.Message.Payload, &header); err != nil {
-				req.Reply <- err
-			} else {
-				req.Reply <- addMessage(&cfg, req.Message, &header)
-			}
+			req.Reply <- addMessage(&cfg, req)
 		}
 	}
 	go worker()

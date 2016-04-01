@@ -47,13 +47,14 @@ func cmdInit(c *cli.Context) {
 		panic(err)
 	}
 
-	rootRecord, err := app.CreateAndSign(&cfg, jwkKey, nil, nil)
+	rootRecord, topicKey, err := app.CreateSignAndEncryptInitial(&cfg, jwkKey, nil)
 	if err != nil {
 		panic(err)
 	}
 
-	topic := app.GetTopic(rootRecord.Message)
-	stor.Add(topic, rootRecord)
+	topic := app.GetTopic(rootRecord, topicKey);
+	stor.Store(topic.RecordTopic, topic.RecordTopic, rootRecord)
+
 	fmt.Printf("Created root %s\n", topic.Base58())
 
 	p := pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)}

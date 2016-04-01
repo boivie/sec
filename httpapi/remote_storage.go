@@ -5,34 +5,39 @@ import (
 	"github.com/boivie/sec/proto"
 	"errors"
 	"time"
-	"encoding/base64"
-	"fmt"
+	"github.com/boivie/sec/app"
+	"strconv"
 )
 
 
-type RemoteStorage struct {
-	Server string
+type remoteStorage struct {
+	server string
 }
 
-func (rs *RemoteStorage) GetLastRecordNbr(topic storage.RecordTopic) storage.RecordIndex {
+func (rs *remoteStorage) GetLastRecordNbr(root storage.RecordTopic, topic storage.RecordTopic) storage.RecordIndex {
 	return 0
 }
 
-func (rs *RemoteStorage) Add(topic storage.RecordTopic, record *proto.Record) error {
-	var jws Jws
-	jws.Header.Alg = "RS256"
-	jws.Protected = base64.URLEncoding.EncodeToString(record.Message.Protected)
-	jws.Payload = base64.URLEncoding.EncodeToString(record.Message.Payload)
-	jws.Signature = base64.URLEncoding.EncodeToString(record.Message.Signature)
+func (rs *remoteStorage) Add(root storage.RecordTopic, topic *storage.RecordTopic, index storage.RecordIndex, message []byte, key []byte) error {
+	var body AddMessageRequest
+	body.EncryptedMessage = app.Base64URLEncode(message)
+	body.Key = app.Base64URLEncode(key)
+
+	var uri string
+	if topic == nil {
+		uri = rs.server + "/roots/" + root.Base58() + "/topics/"
+	} else {
+		uri = rs.server + "/roots/" + root.Base58() + "/topics/" + topic.Base58() + "/" + strconv.Itoa(int(index))
+	}
 
 	req := goreq.Request{
 		Method:      "POST",
-		Uri:         rs.Server + "/store",
+		Uri:         uri,
 		Accept:      "application/json",
 		ContentType: "application/json",
 		UserAgent:   "Sec/1.0",
 		Timeout:     5 * time.Second,
-		Body:        jws,
+		Body:        body,
 	}
 
 	ret, err := req.Do()
@@ -44,15 +49,19 @@ func (rs *RemoteStorage) Add(topic storage.RecordTopic, record *proto.Record) er
 	}
 	return nil
 }
-func (rs *RemoteStorage) Get(topic storage.RecordTopic, from storage.RecordIndex, to storage.RecordIndex) ([]proto.Record, error) {
+func (rs *remoteStorage) Store(root storage.RecordTopic, topic storage.RecordTopic, record *proto.Record) error {
+	return errors.New("Not implemented")
+}
+
+func (rs *remoteStorage) Get(root storage.RecordTopic, topic storage.RecordTopic, from storage.RecordIndex, to storage.RecordIndex) ([]proto.Record, error) {
 	return nil, errors.New("Not implemented")
 }
-func (rs *RemoteStorage) GetOne(topic storage.RecordTopic, index storage.RecordIndex) (proto.Record, error) {
+func (rs *remoteStorage) GetOne(root storage.RecordTopic, topic storage.RecordTopic, index storage.RecordIndex) (proto.Record, error) {
 	return proto.Record{}, errors.New("Not implemented")
 }
-func (rs *RemoteStorage) GetAll(topic storage.RecordTopic) (ret []proto.Record, err error) {
+func (rs *remoteStorage) GetAll(root storage.RecordTopic, topic storage.RecordTopic) (ret []proto.Record, err error) {
 	req := goreq.Request{
-		Uri:         rs.Server + "/topics/" + topic.Base58(),
+		Uri:         rs.server + "/roots/" + root.Base58() + "/topics/" + topic.Base58(),
 		Accept:      "application/json",
 		UserAgent:   "Sec/1.0",
 		Timeout:     5 * time.Second,
@@ -71,24 +80,29 @@ func (rs *RemoteStorage) GetAll(topic storage.RecordTopic) (ret []proto.Record, 
 	if err != nil {
 		return
 	}
-	fmt.Printf("JSON got %d\n", len(resp.Records))
 
 	for i := 0; i < len(resp.Records); i++ {
-		var record proto.Record
-		record.Message, err = JwsMessageToProto(resp.Records[i].Message)
+		rrecord := resp.Records[i]
+		message, err := app.Base64URLDecode(rrecord.Message)
 		if err != nil {
-			fmt.Printf("Error 1\n")
-			return
+			return nil, err
 		}
-		if resp.Records[i].Audit != nil {
-			record.Audit, err = JwsMessageToProto(resp.Records[i].Audit)
-			if err != nil {
-				fmt.Printf("Error 2\n")
-				return
-			}
+		audit, err := app.Base64URLDecode(rrecord.Audit)
+		if err != nil {
+			return nil, err
 		}
-		ret = append(ret, record)
+
+		ret = append(ret, proto.Record{
+			Index: int32(rrecord.Index),
+			Type: rrecord.Type,
+			EncryptedMessage: message,
+			EncryptedAudit: audit,
+		})
 	}
 
 	return
+}
+
+func NewRemoteStorage(server string) (ldbs storage.RecordStorage, err error) {
+	return &remoteStorage{server}, nil
 }

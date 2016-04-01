@@ -9,20 +9,14 @@ import (
 	"strconv"
 	"github.com/boivie/sec/storage"
 	"encoding/json"
-	"encoding/base64"
-	"github.com/boivie/sec/proto"
 	"github.com/boivie/sec/auditor"
 	"github.com/boivie/sec/app"
-	"errors"
 	"fmt"
 )
 
 
 var stor storage.RecordStorage
-
-var (
-	auditors = make(map[storage.RecordTopic]chan auditor.AuditorRequest)
-)
+var auditors = make(map[storage.RecordTopic]chan auditor.AuditorRequest)
 var log = logging.MustGetLogger("lovebeat")
 
 func AddAuditor(id storage.RecordTopic, requests chan auditor.AuditorRequest) {
@@ -33,11 +27,9 @@ func AddAuditor(id storage.RecordTopic, requests chan auditor.AuditorRequest) {
 type JwsHeader struct {
 	Alg string `json:"alg"`
 }
-type Jws struct {
-	Header    JwsHeader `json:"header"`
-	Protected string `json:"protected"`
-	Payload   string `json:"payload"`
-	Signature string `json:"signature"`
+type AddMessageRequest struct {
+	EncryptedMessage string `json:"message"`
+	Key              string `json:"key"`
 }
 
 func httpError(w http.ResponseWriter, r *http.Request, reason string, status int) {
@@ -45,123 +37,138 @@ func httpError(w http.ResponseWriter, r *http.Request, reason string, status int
 	fmt.Printf("HTTP %d %s (%s)\n", status, r.RequestURI, reason)
 }
 
-func getRoot(msg *proto.Message) (topic storage.RecordTopic, err error) {
-	var header app.MessageTypeCommon
-	if err = json.Unmarshal(msg.Payload, &header); err != nil {
-		fmt.Println("1")
+func NewTopicHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("in: %s\n", r.RequestURI)
+
+	params := mux.Vars(r)
+	root, err := storage.DecodeTopic(params["root"])
+	if err != nil {
+		httpError(w, r, "Invalid root", http.StatusNotFound)
 		return
 	}
 
-	if header.Topic != "" {
-		topic, err = storage.DecodeTopic(header.Topic)
-		if err != nil {
-			fmt.Println("2")
-			return
-		}
-
-		var first proto.Record
-		if first, err = stor.GetOne(topic, 0); err != nil {
-			fmt.Println("3")
-			return
-		}
-
-		if err = json.Unmarshal(first.Message.Payload, &header); err != nil {
-			fmt.Println("4")
-			return
-		}
-	}
-
-	if header.Root == "" {
-		err = errors.New("Unknown topic")
-		fmt.Println("5")
-		return
-	}
-	topic, err = storage.DecodeTopic(header.Root)
-	return
-}
-
-func StoreMessagesHandler(w http.ResponseWriter, r *http.Request) {
-	log.Debug("Got connection to store")
 	body, _ := ioutil.ReadAll(r.Body)
 
-	var jwsMsg Jws
-	err := json.Unmarshal(body, &jwsMsg)
+	var req AddMessageRequest
+	err = json.Unmarshal(body, &req)
 	if err != nil {
 		httpError(w, r, "Failed to parse JSON", http.StatusBadRequest)
 		return
 	}
 
-	message, err := JwsMessageToProto(&jwsMsg)
-	if err != nil {
-		httpError(w, r, "Failed to parse JWS message", http.StatusBadRequest)
-		return
-	}
-
-	root, err := getRoot(message)
-	if err != nil {
-		httpError(w, r, "Unknown resource", http.StatusBadRequest)
-		return
-	}
 	aud, ok := auditors[root]
 	if !ok {
 		httpError(w, r, "Service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
-	reply := make(chan error, 1)
-	aud <- auditor.AuditorRequest{
-		Message: message,
-		Reply: reply,
+	message, err := app.Base64URLDecode(req.EncryptedMessage)
+	if err != nil {
+		httpError(w, r, "Failed to parse encrypted message", http.StatusBadRequest)
+		return
 	}
 
+	key, err := app.Base64URLDecode(req.Key)
+	if err != nil {
+		httpError(w, r, "Failed to parse encrypted key", http.StatusBadRequest)
+		return
+	}
+
+	reply := make(chan error, 1)
+	aud <- auditor.AuditorRequest{
+		Root: root,
+		Topic: nil,
+		Index: 0,
+		EncryptedMessage: message,
+		Key: key,
+		Reply: reply,
+	}
 	err = <-reply
+
 	if err == nil {
 		w.Header().Set("Content-Length", "3")
 		io.WriteString(w, "{}\n")
 	} else {
-		http.Error(w, "Bad request", http.StatusBadRequest)
+		fmt.Printf("Got error from auditor: %v\n", err)
+		httpError(w, r, "Bad request", http.StatusBadRequest)
 	}
 }
 
-func JwsMessageToProto(in *Jws) (msg *proto.Message, err error) {
-	msg = &proto.Message{}
-	msg.Header, err = json.Marshal(in.Header)
+func AddMessageToTopicHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("%s\n", r.RequestURI)
+
+	params := mux.Vars(r)
+	root, err := storage.DecodeTopic(params["root"])
 	if err != nil {
+		httpError(w, r, "Invalid root", http.StatusNotFound)
 		return
 	}
 
-	msg.Protected, err = base64.URLEncoding.DecodeString(in.Protected)
+	topic, err := storage.DecodeTopic(params["topic"])
 	if err != nil {
+		httpError(w, r, "Invalid topic", http.StatusNotFound)
 		return
 	}
-	msg.Payload, err = base64.URLEncoding.DecodeString(in.Payload)
-	if err != nil {
-		return
-	}
-	msg.Signature, err = base64.URLEncoding.DecodeString(in.Signature)
-	if err != nil {
-		return
-	}
-	return
-}
 
-func ProtoMessageToJws(in *proto.Message) (out *Jws, err error) {
-	var header JwsHeader
-	err = json.Unmarshal(in.Header, &header)
+	index, err := strconv.ParseInt(params["index"], 10, 31)
+	if err != nil {
+		httpError(w, r, "Invalid index", http.StatusNotFound)
+		return
+	}
+
+	body, _ := ioutil.ReadAll(r.Body)
+
+	var req AddMessageRequest
+	err = json.Unmarshal(body, &req)
+	if err != nil {
+		httpError(w, r, "Failed to parse JSON", http.StatusBadRequest)
+		return
+	}
+
+	aud, ok := auditors[root]
+	if !ok {
+		httpError(w, r, "Service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	message, err := app.Base64URLDecode(req.EncryptedMessage)
+	if err != nil {
+		httpError(w, r, "Failed to parse encrypted message", http.StatusBadRequest)
+		return
+	}
+
+	key, err := app.Base64URLDecode(req.Key)
+	if err != nil {
+		httpError(w, r, "Failed to parse encrypted key", http.StatusBadRequest)
+		return
+	}
+
+	reply := make(chan error, 1)
+	aud <- auditor.AuditorRequest{
+		Root: root,
+		Topic: &topic,
+		Index: int32(index),
+		EncryptedMessage: message,
+		Key: key,
+		Reply: reply,
+	}
+	err = <-reply
+
 	if err == nil {
-		out = &Jws{
-			Header: header,
-			Protected: base64.URLEncoding.EncodeToString(in.Protected),
-			Payload: base64.URLEncoding.EncodeToString(in.Payload),
-			Signature: base64.URLEncoding.EncodeToString(in.Signature),
-		}
+		w.Header().Set("Content-Length", "3")
+		io.WriteString(w, "{}\n")
+	} else {
+		fmt.Printf("Got error from auditor: %v\n", err)
+		httpError(w, r, "Bad request", http.StatusBadRequest)
 	}
-	return
 }
+
 
 type RecordContents struct {
-	Message *Jws `json:"message"`
-	Audit   *Jws `json:"audit,omitempty"`
+	Index   int `json:"index"`
+	Type    string `json:"type"`
+	Message string `json:"message"`
+	Audit   string `json:"audit,omitempty"`
 }
 
 type GetTopicResponse struct {
@@ -169,15 +176,22 @@ type GetTopicResponse struct {
 }
 
 func GetTopicHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("%s\n", r.RequestURI)
+
 	params := mux.Vars(r)
-	topic, err := storage.DecodeTopic(params["topic"])
+	root, err := storage.DecodeTopic(params["root"])
 	if err != nil {
-		http.Error(w, "Invalid topic", http.StatusNotFound)
+		httpError(w, r, "Invalid root", http.StatusNotFound)
 		return
 	}
-	records, err := stor.GetAll(topic)
+	topic, err := storage.DecodeTopic(params["topic"])
 	if err != nil {
-		http.Error(w, "Failed to fetch records", http.StatusInternalServerError)
+		httpError(w, r, "Invalid topic", http.StatusNotFound)
+		return
+	}
+	records, err := stor.GetAll(root, topic)
+	if err != nil {
+		httpError(w, r, "Failed to fetch records", http.StatusInternalServerError)
 		return
 	}
 	ret := GetTopicResponse{
@@ -185,22 +199,11 @@ func GetTopicHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, record := range records {
-		msg, err := ProtoMessageToJws(record.Message)
-		if err != nil {
-			http.Error(w, "Failed to parse message", http.StatusInternalServerError)
-			return
-		}
-		var audit *Jws
-		if record.Audit != nil {
-			audit, err = ProtoMessageToJws(record.Audit)
-			if err != nil {
-				http.Error(w, "Failed to parse audit", http.StatusInternalServerError)
-				return
-			}
-		}
 		ret.Records = append(ret.Records, RecordContents{
-			Message: msg,
-			Audit: audit,
+			Index: int(record.Index),
+			Type: record.Type,
+			Message: app.Base64URLEncode(record.EncryptedMessage),
+			Audit: app.Base64URLEncode(record.EncryptedAudit),
 		})
 	}
 
@@ -214,6 +217,7 @@ func GetTopicHandler(w http.ResponseWriter, r *http.Request) {
 
 func Register(rtr *mux.Router, stor_ storage.RecordStorage) {
 	stor = stor_
-	rtr.HandleFunc("/store", StoreMessagesHandler).Methods("POST")
-	rtr.HandleFunc("/topics/{topic:[A-Za-z0-9]+}", GetTopicHandler).Methods("GET")
+	rtr.HandleFunc("/roots/{root:[A-Za-z0-9]+}/topics/", NewTopicHandler).Methods("POST")
+	rtr.HandleFunc("/roots/{root:[A-Za-z0-9]+}/topics/{topic:[A-Za-z0-9]+}/{index:[0-9]+}", AddMessageToTopicHandler).Methods("POST")
+	rtr.HandleFunc("/roots/{root:[A-Za-z0-9]+}/topics/{topic:[A-Za-z0-9]+}", GetTopicHandler).Methods("GET")
 }

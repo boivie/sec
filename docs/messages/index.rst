@@ -63,14 +63,15 @@ Encryption
 Messages are encrypted using AES-256-GCM with these settings:
 
 * ``key``: (128 bits) The lower 128 bits of the SHA256 hash of the plaintext
-  message's signature.
-* ``nonce``: (96 bits): The first 32 bytes are the first 32 bytes of the
-  ``root topic`` id. The remaining 64 bits are a counter value set to the
-  topic's index.
-* ``authenticated data``:
-** For initial messages: "$root_topic/$message_type"
-** For all others: "$topic/$index/$message_type"
+  message's signature of the initial message of this topic.
+* ``nonce``: (96 bits): consists of three 32-bit integers, in big endian:
+** 0 (reserved).
+** 0 for messages, 1 for auditor signatures.
+** The index within the topic.
+* ``authenticated data``: empty
 * ``tag size``: 128 bits.
+
+Audit messages are encrypted similarly,
 
 When adding messages, a client may choose to send them encrypted or unencrypted.
 If it chooses to send them unencrypted, the SEC service will encrypt them and

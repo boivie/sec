@@ -47,12 +47,12 @@ func cmdOffer(c *cli.Context) {
 
 	key, err := app.LoadKeyFromFile(c.String("issuer_key"), c.String("issuer_id"))
 
-	record, err := app.CreateAndSign(&msg, key, &root, nil)
+	record, topicKey, err := app.CreateSignAndEncryptInitial(&msg, key, &root)
 
-	rs := httpapi.RemoteStorage{c.String("server")}
-	topic := app.GetTopic(record.Message)
+	rs, _ := httpapi.NewRemoteStorage(c.String("server"))
+	topic := app.GetTopic(record, topicKey)
 
-	err = rs.Add(topic, record)
+	err = rs.Add(root, nil, 0, record.EncryptedMessage, topicKey)
 	if err != nil {
 		panic(err)
 	}
